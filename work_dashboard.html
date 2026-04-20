@@ -81,6 +81,27 @@ body{display:flex;flex-direction:column}
 .embed-error{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-tertiary);font-size:12px;gap:6px;padding:20px;text-align:center}
 .embed-error-icon{font-size:28px;color:var(--yellow)}
 
+/* Embed Mode Switch */
+.embed-mode-switch{display:flex;gap:2px;background:var(--bg);border-radius:4px;padding:2px}
+.embed-mode-btn{font-size:10px;padding:2px 8px;border:none;background:none;border-radius:3px;cursor:pointer;color:var(--text-tertiary);font-family:var(--font-stack);transition:all .15s;white-space:nowrap}
+.embed-mode-btn:hover{color:var(--text-secondary)}
+.embed-mode-btn.active{background:var(--bg-white);color:var(--text-primary);box-shadow:0 1px 2px rgba(0,0,0,0.08)}
+
+/* Read Mode View */
+.read-view{position:absolute;inset:0;overflow-y:auto;padding:16px;background:var(--bg-white)}
+.read-view-title{font-size:18px;font-weight:700;line-height:1.4;margin-bottom:8px;color:var(--text-primary)}
+.read-view-meta{font-size:11px;color:var(--text-tertiary);margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border-light)}
+.read-view-content{font-size:13px;line-height:1.8;color:var(--text-secondary)}
+.read-view-content p{margin-bottom:12px}
+.read-view-content h1,.read-view-content h2,.read-view-content h3{font-size:15px;font-weight:600;color:var(--text-primary);margin:16px 0 8px}
+.read-view-content img{max-width:100%;border-radius:var(--radius);margin:8px 0}
+.read-view-content a{color:var(--accent);text-decoration:none}
+.read-view-content a:hover{text-decoration:underline}
+.read-view-content blockquote{border-left:3px solid var(--border);padding-left:12px;margin:12px 0;color:var(--text-tertiary)}
+.read-view-loading{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-tertiary);gap:8px}
+.read-view-loading .spinner{width:24px;height:24px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
 /* ========== URL Input Modal ========== */
 .url-modal-box{background:var(--bg-white);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);padding:24px;max-width:480px;width:90%;transform:scale(0.95);transition:transform .25s}
 .modal-overlay.show .url-modal-box{transform:scale(1)}
@@ -344,6 +365,11 @@ body{display:flex;flex-direction:column}
     <div class="embed-panel" id="embed-panel">
       <div class="embed-panel-header">
         <span class="embed-panel-title">参考文档</span>
+        <div class="embed-mode-switch">
+          <button class="embed-mode-btn active" data-mode="direct" title="直接嵌入">直接</button>
+          <button class="embed-mode-btn" data-mode="proxy" title="代理模式（绕过限制）">代理</button>
+          <button class="embed-mode-btn" data-mode="read" title="阅读模式（提取正文）">阅读</button>
+        </div>
         <button class="embed-panel-close" id="embed-close-btn" title="关闭">✕</button>
       </div>
       <div class="embed-panel-url">
@@ -393,7 +419,7 @@ body{display:flex;flex-direction:column}
       <input class="url-input-field" id="url-input-field" placeholder="https://example.com" spellcheck="false">
       <button class="url-confirm-btn" id="url-confirm-btn">打开</button>
     </div>
-    <div class="url-hint">提示：部分网站（如知乎、微博）禁止被嵌入显示，推荐使用小说网站等允许嵌入的页面。输入后按 Enter 快速确认。</div>
+    <div class="url-hint">支持三种加载模式：「直接」嵌入原始页面、「代理」绕过嵌入限制、「阅读」提取正文适合小说/文章。输入后按 Enter 快速确认。</div>
     <div class="url-history" id="url-history" style="display:none">
       <div class="url-history-title">最近使用</div>
       <div class="url-history-list" id="url-history-list"></div>
@@ -547,6 +573,8 @@ function confirmUrl(){
   hideUrlModal();
 }
 
+let currentEmbedMode = 'direct'; // 'direct' | 'proxy' | 'read'
+
 function loadEmbedUrl(url){
   saveEmbedUrl(url);
   addToHistory(url);
@@ -558,36 +586,100 @@ function loadEmbedUrl(url){
   panel.classList.add('open');
   $('#embed-btn').classList.add('active');
   input.value=url;
-  // Remove placeholder & old iframe
+  // Clear old content
   if(placeholder)placeholder.style.display='none';
-  const oldIframe=body.querySelector('iframe');
-  if(oldIframe)oldIframe.remove();
-  const oldError=body.querySelector('.embed-error');
-  if(oldError)oldError.remove();
-  // Create iframe
+  body.innerHTML='';
+  
+  switch(currentEmbedMode){
+    case 'proxy':
+      loadViaProxy(url, body);
+      break;
+    case 'read':
+      loadViaReadability(url, body);
+      break;
+    default:
+      loadDirect(url, body);
+  }
+}
+
+function loadDirect(url, body){
   const iframe=document.createElement('iframe');
   iframe.setAttribute('sandbox','allow-scripts allow-same-origin allow-forms allow-popups');
   iframe.setAttribute('referrerpolicy','no-referrer');
   iframe.style.cssText='width:100%;height:100%;border:none';
-  // Handle load errors (sites that block iframe)
-  iframe.addEventListener('load',()=>{
-    try{
-      // If we can access contentDocument, it loaded successfully
-      const doc=iframe.contentDocument||iframe.contentWindow.document;
-      if(doc&&doc.title)iframe.title=doc.title;
-    }catch(e){
-      // Cross-origin: likely loaded fine but we can't access it
-    }
-  });
+  iframe.addEventListener('load',()=>{try{const doc=iframe.contentDocument||iframe.contentWindow.document;if(doc&&doc.title)iframe.title=doc.title}catch(e){}});
   iframe.addEventListener('error',()=>{
     iframe.remove();
-    const errDiv=document.createElement('div');
-    errDiv.className='embed-error';
-    errDiv.innerHTML='<span class="embed-error-icon">⚠️</span><span>无法加载此页面</span><span style="font-size:11px">该网站可能禁止了嵌入显示，请尝试其他网站</span>';
-    body.appendChild(errDiv);
+    showEmbedError(body,'无法加载此页面','该网站可能禁止了嵌入显示，可尝试切换到「代理」或「阅读」模式');
   });
   body.appendChild(iframe);
   iframe.src=url;
+}
+
+function loadViaProxy(url, body){
+  const loading=document.createElement('div');
+  loading.className='read-view-loading';
+  loading.innerHTML='<div class="spinner"></div><span>正在通过代理加载...</span>';
+  body.appendChild(loading);
+  const proxyUrl=`${getBaseUrl()}/api/proxy?url=${encodeURIComponent(url)}`;
+  const iframe=document.createElement('iframe');
+  iframe.setAttribute('sandbox','allow-scripts allow-same-origin allow-forms allow-popups');
+  iframe.style.cssText='width:100%;height:100%;border:none';
+  iframe.addEventListener('load',()=>{loading.remove()});
+  iframe.addEventListener('error',()=>{
+    loading.remove();
+    showEmbedError(body,'代理加载失败','该网站可能无法通过代理访问');
+  });
+  body.appendChild(iframe);
+  iframe.src=proxyUrl;
+}
+
+function loadViaReadability(url, body){
+  const loading=document.createElement('div');
+  loading.className='read-view-loading';
+  loading.innerHTML='<div class="spinner"></div><span>正在提取正文内容...</span>';
+  body.appendChild(loading);
+  fetch(`${getBaseUrl()}/api/readability?url=${encodeURIComponent(url)}`)
+    .then(r=>r.json())
+    .then(data=>{
+      loading.remove();
+      if(data.error){
+        showEmbedError(body,'提取失败',data.error);
+        return;
+      }
+      renderReadView(body, data);
+    })
+    .catch(err=>{
+      loading.remove();
+      showEmbedError(body,'请求失败','无法连接到服务器');
+    });
+}
+
+function renderReadView(body, data){
+  const view=document.createElement('div');
+  view.className='read-view';
+  let metaHtml=`<span>${data.site_name||'未知来源'}</span>`;
+  if(data.publish_date)metaHtml+=`<span> · ${data.publish_date}</span>`;
+  metaHtml+=`<span> · <a href="${data.source}" target="_blank" style="color:var(--accent)">查看原文</a></span>`;
+  view.innerHTML=`
+    <div class="read-view-title">${escapeHtml(data.title||'无标题')}</div>
+    <div class="read-view-meta">${metaHtml}</div>
+    <div class="read-view-content">${data.content||'<p>未能提取到正文内容</p>'}</div>
+  `;
+  body.appendChild(view);
+}
+
+function showEmbedError(body, title, desc){
+  const errDiv=document.createElement('div');
+  errDiv.className='embed-error';
+  errDiv.innerHTML=`<span class="embed-error-icon">⚠️</span><span>${title}</span><span style="font-size:11px">${desc}</span>`;
+  body.appendChild(errDiv);
+}
+
+function escapeHtml(str){
+  const div=document.createElement('div');
+  div.textContent=str;
+  return div.innerHTML;
 }
 
 function closeEmbedPanel(){
@@ -618,6 +710,28 @@ function initEmbed(){
   });
   // Close button
   $('#embed-close-btn').addEventListener('click',closeEmbedPanel);
+  // Mode switch buttons
+  // Restore saved mode
+  const savedMode=localStorage.getItem('wsp_embed_mode');
+  if(savedMode&&['direct','proxy','read'].includes(savedMode)){
+    currentEmbedMode=savedMode;
+    $$('.embed-mode-btn').forEach(b=>{
+      b.classList.toggle('active',b.dataset.mode===currentEmbedMode);
+    });
+  }
+  $$('.embed-mode-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      $$('.embed-mode-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      currentEmbedMode=btn.dataset.mode;
+      localStorage.setItem('wsp_embed_mode',currentEmbedMode);
+      // If panel is open and has URL, reload with new mode
+      const currentUrl=getEmbedUrl();
+      if(currentUrl&&$('#embed-panel').classList.contains('open')){
+        loadEmbedUrl(currentUrl);
+      }
+    });
+  });
   // URL modal
   $('#url-confirm-btn').addEventListener('click',confirmUrl);
   $('#url-input-field').addEventListener('keydown',e=>{if(e.key==='Enter')confirmUrl()});

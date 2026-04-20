@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import platform
+import re
 import signal
 import socket
 import subprocess
@@ -21,9 +22,12 @@ import sys
 import threading
 import time
 import webbrowser
+from html.parser import HTMLParser
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 from functools import partial
 
 # ---------------------------------------------------------------------------
@@ -666,6 +670,348 @@ class WindowManager:
 
 
 # ===========================================================================
+# 网页正文提取器（阅读模式辅助类）
+# ===========================================================================
+
+class HTMLReadabilityParser(HTMLParser):
+    """
+    简易网页正文提取器。
+
+    基于 HTMLParser 实现的轻量级正文提取，不依赖第三方库。
+    通过分析每个块级元素的文本密度（文本长度 / 子标签数），
+    选择密度最高的元素作为正文容器。
+    """
+
+    # 噪声标签：脚本、样式、导航、广告等
+    NOISE_TAGS = {"script", "style", "nav", "footer", "header", "aside", "noscript", "iframe", "svg"}
+    # 块级容器标签（正文候选）
+    BLOCK_TAGS = {"div", "article", "section", "main", "td", "li"}
+    # 保留的正文标签
+    CONTENT_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li",
+                    "img", "a", "br", "strong", "em", "b", "i", "blockquote", "pre", "code", "span"}
+    # 标题标签
+    TITLE_TAGS = {"h1", "h2", "h3"}
+
+    def __init__(self, base_url: str = "") -> None:
+        super().__init__()
+        self.base_url = base_url  # 基础 URL，用于将相对路径转为绝对路径
+
+        # ---- 提取结果 ----
+        self.title: str = ""               # 页面标题
+        self.publish_time: str = ""        # 发布时间
+        self.site_name: str = ""           # 网站名称
+        self.images: List[str] = []        # 正文图片列表
+
+        # ---- 解析状态 ----
+        self._in_title: bool = False       # 是否在 <title> 标签内
+        self._title_text: str = ""         # <title> 的文本内容
+        self._in_head: bool = False        # 是否在 <head> 内
+        self._in_noise: int = 0            # 噪声标签嵌套深度
+        self._in_body: bool = False        # 是否已进入 <body>
+
+        # ---- 正文密度分析 ----
+        # 每个块级元素记录：{tag_path: {"text_len": int, "child_tags": int, "start_pos": int}}
+        self._block_stack: List[str] = []          # 当前块级标签栈
+        self._block_data: Dict[str, Dict[str, int]] = {}  # 块级元素数据
+        self._current_text: str = ""               # 当前累积的文本
+        self._current_child_tags: int = 0          # 当前块内的子标签数
+
+        # ---- 正文内容重建 ----
+        self._content_parts: List[str] = []        # 正文 HTML 片段
+        self._best_block: str = ""                 # 密度最高的块级元素标识
+        self._in_best_block: bool = False          # 是否在最佳正文块内
+        self._best_block_depth: int = 0            # 最佳块在栈中的深度
+        self._skip_depth: int = 0                  # 跳过噪声的深度
+
+    def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]) -> None:
+        tag = tag.lower()
+
+        # ---- <head> 区域处理 ----
+        if tag == "head":
+            self._in_head = True
+            return
+        if tag == "body":
+            self._in_body = True
+            return
+
+        # ---- 在 <head> 中提取元信息 ----
+        if self._in_head:
+            attr_dict = dict(attrs)
+            # 提取 <title>
+            if tag == "title":
+                self._in_title = True
+                self._title_text = ""
+            # 提取发布时间
+            elif tag == "meta":
+                name = attr_dict.get("name", "").lower()
+                content = attr_dict.get("content", "")
+                if name in ("date", "publish-date", "pubdate", "article:published_time"):
+                    self.publish_time = content
+                elif name == "og:site_name":
+                    self.site_name = content
+            return
+
+        # ---- <body> 中处理 ----
+        if not self._in_body:
+            return
+
+        # 噪声标签：增加嵌套深度
+        if tag in self.NOISE_TAGS:
+            self._in_noise += 1
+            return
+
+        # 如果在噪声标签内，跳过
+        if self._in_noise > 0:
+            return
+
+        # 块级标签：记录密度数据
+        if tag in self.BLOCK_TAGS:
+            block_id = f"{tag}_{len(self._block_data)}"
+            self._block_stack.append(block_id)
+            self._block_data[block_id] = {
+                "text_len": 0,
+                "child_tags": 0,
+            }
+            # 将父块的数据传递下来
+            if self._block_stack:
+                parent_id = self._block_stack[-1] if len(self._block_stack) > 1 else None
+                if parent_id and parent_id in self._block_data:
+                    self._block_data[parent_id]["child_tags"] += 1
+
+        # 增加子标签计数
+        if self._block_stack:
+            current_block = self._block_stack[-1]
+            if current_block in self._block_data:
+                self._block_data[current_block]["child_tags"] += 1
+
+        # 记录图片（仅在正文候选区域内）
+        if tag == "img":
+            attr_dict = dict(attrs)
+            src = attr_dict.get("src", "")
+            if src:
+                # 将相对路径转为绝对路径
+                src = self._resolve_url(src)
+                self.images.append(src)
+
+        # 发布时间
+        if tag == "time":
+            attr_dict = dict(attrs)
+            datetime_val = attr_dict.get("datetime", "")
+            if datetime_val:
+                self.publish_time = datetime_val
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+
+        if tag == "head":
+            self._in_head = False
+            return
+        if tag == "body":
+            self._in_body = False
+            return
+
+        if self._in_head:
+            if tag == "title":
+                self._in_title = False
+                if not self.title and self._title_text.strip():
+                    self.title = self._title_text.strip()
+            return
+
+        if not self._in_body:
+            return
+
+        if tag in self.NOISE_TAGS:
+            if self._in_noise > 0:
+                self._in_noise -= 1
+            return
+
+        if self._in_noise > 0:
+            return
+
+        if tag in self.BLOCK_TAGS and self._block_stack:
+            block_id = self._block_stack.pop()
+            # 将当前文本长度记录到该块
+            if block_id in self._block_data:
+                self._block_data[block_id]["text_len"] = len(self._current_text.strip())
+
+    def handle_data(self, data: str) -> None:
+        if self._in_title:
+            self._title_text += data
+            return
+
+        if not self._in_body or self._in_noise > 0:
+            return
+
+        self._current_text += data
+
+    def handle_entityref(self, name: str) -> None:
+        """处理 HTML 实体引用，如 &amp; &lt; 等。"""
+        if self._in_title:
+            self._title_text += f"&{name};"
+            return
+
+    def handle_charref(self, name: str) -> None:
+        """处理数字字符引用，如 &#123; &#x1F600; 等。"""
+        if self._in_title:
+            self._title_text += f"&#{name};"
+            return
+
+    def _resolve_url(self, url: str) -> str:
+        """将相对 URL 转为绝对 URL。"""
+        if not url:
+            return url
+        # 已经是绝对路径
+        if url.startswith("http://") or url.startswith("https://") or url.startswith("//"):
+            return url
+        # 协议相对路径
+        if url.startswith("//"):
+            return "https:" + url
+        # 使用 base_url 解析
+        from urllib.parse import urljoin
+        return urljoin(self.base_url, url)
+
+    def get_result(self) -> Dict[str, Any]:
+        """
+        解析完成后调用，返回提取结果。
+
+        Returns:
+            包含 title, content, images, source, site_name, publish_time 的字典。
+        """
+        # 如果没有从 <title> 获取到标题，尝试从 <h1> 获取
+        if not self.title:
+            self.title = self._title_text.strip() or "未知标题"
+
+        # 选择文本密度最高的块级元素作为正文容器
+        best_block_id = ""
+        best_density = 0.0
+        for block_id, data in self._block_data.items():
+            text_len = data["text_len"]
+            child_tags = data["child_tags"]
+            # 文本密度 = 文本长度 / (子标签数 + 1)，避免除零
+            density = text_len / (child_tags + 1)
+            # 过滤掉太短的块（至少 100 字符才有意义）
+            if text_len >= 100 and density > best_density:
+                best_density = density
+                best_block_id = block_id
+
+        return {
+            "title": self.title,
+            "content": "",  # 由 _extract_content 填充
+            "images": list(dict.fromkeys(self.images)),  # 去重保序
+            "source": self.base_url,
+            "site_name": self.site_name or "",
+            "publish_time": self.publish_time or "",
+        }
+
+    def extract_content(self, html: str) -> str:
+        """
+        从 HTML 中提取正文内容。
+
+        在 get_result 确定最佳正文块后，重新解析 HTML，
+        仅保留最佳块内的内容标签。
+
+        Args:
+            html: 原始 HTML 字符串
+
+        Returns:
+            清理后的正文 HTML 字符串
+        """
+        # 使用正则提取最佳块对应的 HTML 内容
+        # 简化处理：基于文本密度分析结果，提取文本量最大的区域
+        content = self._simple_extract(html)
+        return content
+
+    def _simple_extract(self, html: str) -> str:
+        """
+        简易正文提取：基于标签密度分析。
+
+        策略：
+        1. 找到所有 <p> 标签，计算连续 <p> 标签最密集的区域
+        2. 提取该区域的 HTML
+        3. 清理噪声标签
+        """
+        # 移除 script 和 style
+        cleaned = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
+        cleaned = re.sub(r'<style[^>]*>.*?</style>', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+        cleaned = re.sub(r'<nav[^>]*>.*?</nav>', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+        cleaned = re.sub(r'<footer[^>]*>.*?</footer>', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+        cleaned = re.sub(r'<header[^>]*>.*?</header>', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+        cleaned = re.sub(r'<aside[^>]*>.*?</aside>', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+        cleaned = re.sub(r'<noscript[^>]*>.*?</noscript>', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+
+        # 策略：查找 <article> 标签
+        article_match = re.search(r'<article[^>]*>(.*?)</article>', cleaned, flags=re.DOTALL | re.IGNORECASE)
+        if article_match:
+            content = article_match.group(1)
+            return self._clean_content(content)
+
+        # 策略：查找带有 content/article/post 等常见 class/id 的 div
+        content_patterns = [
+            r'<div[^>]*(?:class|id)\s*=\s*["\'][^"\']*(?:article|content|post|entry|story|text|body|main)[^"\']*["\'][^>]*>(.*?)</div>',
+        ]
+        for pattern in content_patterns:
+            match = re.search(pattern, cleaned, flags=re.DOTALL | re.IGNORECASE)
+            if match:
+                content = match.group(1)
+                # 检查内容是否足够丰富
+                text_in_content = re.sub(r'<[^>]+>', '', content).strip()
+                if len(text_in_content) > 200:
+                    return self._clean_content(content)
+
+        # 策略：查找 <main> 标签
+        main_match = re.search(r'<main[^>]*>(.*?)</main>', cleaned, flags=re.DOTALL | re.IGNORECASE)
+        if main_match:
+            content = main_match.group(1)
+            text_in_content = re.sub(r'<[^>]+>', '', content).strip()
+            if len(text_in_content) > 200:
+                return self._clean_content(content)
+
+        # 回退策略：提取所有 <p> 标签
+        paragraphs = re.findall(r'<p[^>]*>(.*?)</p>', cleaned, flags=re.DOTALL | re.IGNORECASE)
+        if paragraphs:
+            # 过滤掉太短的段落（可能是导航或广告）
+            meaningful = [p for p in paragraphs if len(re.sub(r'<[^>]+>', '', p).strip()) > 20]
+            if meaningful:
+                return "\n".join(f"<p>{p}</p>" for p in meaningful)
+
+        # 最终回退：返回清理后的 body 内容
+        body_match = re.search(r'<body[^>]*>(.*?)</body>', cleaned, flags=re.DOTALL | re.IGNORECASE)
+        if body_match:
+            return self._clean_content(body_match.group(1))
+
+        return "<p>无法提取正文内容</p>"
+
+    def _clean_content(self, html: str) -> str:
+        """
+        清理 HTML 内容，只保留有用的标签。
+
+        Args:
+            html: 待清理的 HTML 字符串
+
+        Returns:
+            清理后的 HTML 字符串
+        """
+        # 保留的标签
+        allowed_tags = self.CONTENT_TAGS
+
+        # 移除不保留的标签，但保留其内容
+        def _replace_tag(match: re.Match) -> str:
+            tag_name = match.group(1).lower()
+            if tag_name in allowed_tags:
+                return match.group(0)  # 保留
+            return ""  # 移除标签但保留内容（内容在标签外）
+
+        # 移除不允许的标签（保留内容）
+        result = re.sub(r'</?([a-zA-Z][a-zA-Z0-9]*)[^>]*>', _replace_tag, html)
+
+        # 清理多余空行
+        result = re.sub(r'\n\s*\n', '\n', result)
+        result = result.strip()
+
+        return result
+
+
+# ===========================================================================
 # 内嵌 HTTP 服务器
 # ===========================================================================
 
@@ -674,13 +1020,16 @@ class DashboardHandler(SimpleHTTPRequestHandler):
     自定义 HTTP 请求处理器。
 
     提供以下路由：
-      - GET /              -> 返回 work_dashboard.html
-      - GET /exit          -> 触发看板退出（仅后端内部调用）
-      - GET /exit_status   -> 前端轮询检查退出状态
-      - GET /config        -> 返回当前配置 JSON
-      - GET /api/todos     -> 返回待办列表
-      - POST /api/todos    -> 保存待办列表
-      - 其他               -> 静态文件服务
+      - GET /                  -> 返回 work_dashboard.html
+      - GET /exit              -> 触发看板退出（仅后端内部调用）
+      - GET /exit_status       -> 前端轮询检查退出状态
+      - GET /config            -> 返回当前配置 JSON
+      - GET /api/todos         -> 返回待办列表
+      - POST /api/todos        -> 保存待办列表
+      - GET /api/proxy         -> 反向代理（剥离 X-Frame-Options/CSP，重写资源路径）
+      - GET /api/readability   -> 阅读模式（提取网页正文，返回干净 JSON）
+      - OPTIONS *              -> CORS 预检请求
+      - 其他                   -> 静态文件服务
     """
 
     # 类变量，由外部设置
@@ -706,6 +1055,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self._serve_config()
         elif parsed.path == "/api/todos":
             self._serve_todos()
+        elif parsed.path == "/api/proxy":
+            self._handle_proxy(parsed)
+        elif parsed.path == "/api/readability":
+            self._handle_readability(parsed)
         else:
             # 尝试提供静态文件
             super().do_GET()
@@ -719,6 +1072,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         else:
             self.send_response(404)
             self.end_headers()
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        """处理 CORS 预检请求。"""
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
 
     def _serve_dashboard(self) -> None:
         """提供 work_dashboard.html 页面。"""
@@ -797,6 +1158,339 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             self.wfile.write(json.dumps({"status": "error", "message": str(e)}, ensure_ascii=False).encode("utf-8"))
+
+    # ------------------------------------------------------------------
+    # 反向代理路由
+    # ------------------------------------------------------------------
+
+    # 浏览器 User-Agent，用于模拟浏览器请求
+    _BROWSER_UA = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+    # 外部请求超时时间（秒）
+    _PROXY_TIMEOUT = 10
+
+    def _handle_proxy(self, parsed: Any) -> None:
+        """
+        反向代理路由：GET /api/proxy?url=https://example.com
+
+        代理请求外部 URL，剥离 X-Frame-Options 和 CSP 的 frame-ancestors 头，
+        让 iframe 可以嵌入原本禁止嵌入的网站。对 HTML 内容还会重写资源路径。
+
+        Args:
+            parsed: urlparse 解析结果
+        """
+        from urllib.parse import parse_qs
+
+        # 获取目标 URL 参数
+        params = parse_qs(parsed.query)
+        raw_url = params.get("url", [None])[0]
+
+        if not raw_url:
+            self._send_proxy_error(400, "缺少 url 参数")
+            return
+
+        # 验证 URL 格式
+        if not raw_url.startswith(("http://", "https://")):
+            self._send_proxy_error(400, "仅支持 http/https 协议")
+            return
+
+        # 安全检查：防止 SSRF（仅允许公网 URL）
+        parsed_target = urlparse(raw_url)
+        hostname = parsed_target.hostname or ""
+        # 禁止访问内网地址
+        if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or hostname.endswith(".local"):
+            self._send_proxy_error(403, "禁止访问内网地址")
+            return
+        # 禁止访问私有 IP 段
+        try:
+            import ipaddress
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_private or ip.is_loopback or ip.is_reserved:
+                self._send_proxy_error(403, "禁止访问内网地址")
+                return
+        except ValueError:
+            pass  # 不是 IP 地址，是域名，放行
+
+        logger.info("代理请求: %s", raw_url)
+
+        try:
+            # 构建请求
+            req = Request(raw_url, headers={"User-Agent": self._BROWSER_UA})
+            resp = urlopen(req, timeout=self._PROXY_TIMEOUT)
+
+            # 读取响应内容
+            content = resp.read()
+            content_type = resp.headers.get("Content-Type", "application/octet-stream")
+
+            # 对 HTML 内容进行资源路径重写
+            is_html = "text/html" in content_type
+            if is_html:
+                content = self._rewrite_html_paths(content, raw_url)
+
+            # 发送响应
+            self.send_response(resp.status)
+            # 转发响应头，但剥离限制嵌入的头
+            for key, value in resp.headers.items():
+                key_lower = key.lower()
+                # 跳过禁止嵌入的头
+                if key_lower == "x-frame-options":
+                    logger.debug("代理: 剥离 X-Frame-Options 头")
+                    continue
+                if key_lower == "content-security-policy":
+                    # 移除 frame-ancestors 指令
+                    value = self._remove_frame_ancestors(value)
+                    if not value:
+                        logger.debug("代理: 剥离 Content-Security-Policy 头")
+                        continue
+                # 跳过 transfer-encoding（我们直接发送内容）
+                if key_lower in ("transfer-encoding", "connection"):
+                    continue
+                self.send_header(key, value)
+
+            # 添加 CORS 头
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(content)
+            logger.info("代理成功: %s (%d bytes)", raw_url, len(content))
+
+        except HTTPError as e:
+            logger.error("代理 HTTP 错误: %s -> %d %s", raw_url, e.code, e.reason)
+            self._send_proxy_error(e.code, f"上游服务器返回 {e.code} {e.reason}")
+        except URLError as e:
+            logger.error("代理 URL 错误: %s -> %s", raw_url, e.reason)
+            self._send_proxy_error(502, f"无法连接目标服务器: {e.reason}")
+        except Exception as e:
+            logger.error("代理异常: %s -> %s", raw_url, e)
+            self._send_proxy_error(500, f"代理请求失败: {e}")
+
+    def _send_proxy_error(self, status_code: int, message: str) -> None:
+        """
+        发送代理错误响应。
+
+        Args:
+            status_code: HTTP 状态码
+            message: 错误信息
+        """
+        self.send_response(status_code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        error_body = json.dumps({"error": message}, ensure_ascii=False).encode("utf-8")
+        self.wfile.write(error_body)
+
+    def _remove_frame_ancestors(self, csp_value: str) -> str:
+        """
+        从 Content-Security-Policy 头中移除 frame-ancestors 指令。
+
+        Args:
+            csp_value: 原始 CSP 头值
+
+        Returns:
+            移除 frame-ancestors 后的 CSP 值，如果为空则返回空字符串
+        """
+        directives = [d.strip() for d in csp_value.split(";") if d.strip()]
+        filtered = [d for d in directives if not d.strip().lower().startswith("frame-ancestors")]
+        return "; ".join(filtered)
+
+    def _rewrite_html_paths(self, content: bytes, base_url: str) -> bytes:
+        """
+        重写 HTML 中的资源路径，将相对路径转为绝对路径。
+
+        处理以下属性：
+        - src="/xxx" -> src="https://domain/xxx"
+        - href="/xxx" -> href="https://domain/xxx"
+        - action="/xxx" -> action="https://domain/xxx"
+        - url(/xxx) -> url(https://domain/xxx)
+
+        排除特殊情况：href="#", href="javascript:", 已包含协议的绝对路径。
+
+        Args:
+            content: HTML 内容（字节）
+            base_url: 原始页面 URL
+
+        Returns:
+            重写后的 HTML 内容（字节）
+        """
+        parsed_base = urlparse(base_url)
+        origin = f"{parsed_base.scheme}://{parsed_base.netloc}"
+
+        html_text = content.decode("utf-8", errors="replace")
+
+        # 需要排除的特殊值
+        skip_values = {"#", "javascript:", "javascript:void(0)", "mailto:", "tel:", "data:"}
+
+        def _rewrite_attr(match: re.Match) -> str:
+            """重写 HTML 属性中的路径。"""
+            attr_name = match.group(1)
+            quote = match.group(2)
+            path = match.group(3)
+
+            # 排除特殊值
+            if path.lower() in skip_values:
+                return match.group(0)
+            # 排除已有协议的绝对路径
+            if path.startswith(("http://", "https://", "//", "data:")):
+                return match.group(0)
+            # 排除锚点链接
+            if path.startswith("#"):
+                return match.group(0)
+            # 排除 javascript:
+            if path.lower().startswith("javascript:"):
+                return match.group(0)
+
+            # 以 / 开头的相对路径 -> 拼接 origin
+            if path.startswith("/"):
+                new_path = origin + path
+            else:
+                # 其他相对路径，使用 urljoin
+                from urllib.parse import urljoin
+                new_path = urljoin(base_url, path)
+
+            return f'{attr_name}={quote}{new_path}{quote}'
+
+        # 重写 src="..." href="..." action="..." 属性（仅替换以 / 开头的路径）
+        # 匹配属性名=引号+路径+引号
+        html_text = re.sub(
+            r'(src|href|action)\s*=\s*(["\'])(/[^"\']*?)\2',
+            _rewrite_attr,
+            html_text,
+            flags=re.IGNORECASE,
+        )
+
+        # 重写 CSS url(/xxx) 中的路径
+        def _rewrite_css_url(match: re.Match) -> str:
+            """重写 CSS url() 中的路径。"""
+            path = match.group(1)
+            if path.startswith(("http://", "https://", "//", "data:")):
+                return match.group(0)
+            if path.startswith("/"):
+                return f"url({origin}{path})"
+            from urllib.parse import urljoin
+            return f"url({urljoin(base_url, path)})"
+
+        html_text = re.sub(
+            r'url\(\s*(["\']?)(/[^)"\']*)\1\s*\)',
+            _rewrite_css_url,
+            html_text,
+            flags=re.IGNORECASE,
+        )
+
+        return html_text.encode("utf-8")
+
+    # ------------------------------------------------------------------
+    # 阅读模式路由
+    # ------------------------------------------------------------------
+
+    def _handle_readability(self, parsed: Any) -> None:
+        """
+        阅读模式路由：GET /api/readability?url=https://example.com/article
+
+        抓取指定 URL 的网页内容，提取正文（标题 + 内容 + 图片），
+        返回干净的 JSON，供前端渲染成阅读视图。
+
+        Args:
+            parsed: urlparse 解析结果
+        """
+        from urllib.parse import parse_qs
+
+        # 获取目标 URL 参数
+        params = parse_qs(parsed.query)
+        raw_url = params.get("url", [None])[0]
+
+        if not raw_url:
+            self._send_readability_error(400, "缺少 url 参数")
+            return
+
+        # 验证 URL 格式
+        if not raw_url.startswith(("http://", "https://")):
+            self._send_readability_error(400, "仅支持 http/https 协议")
+            return
+
+        logger.info("阅读模式抓取: %s", raw_url)
+
+        try:
+            # 抓取网页 HTML
+            req = Request(raw_url, headers={"User-Agent": self._BROWSER_UA})
+            resp = urlopen(req, timeout=self._PROXY_TIMEOUT)
+            html_bytes = resp.read()
+
+            # 尝试检测编码
+            content_type = resp.headers.get("Content-Type", "")
+            encoding = "utf-8"
+            charset_match = re.search(r'charset=([a-zA-Z0-9_-]+)', content_type, re.IGNORECASE)
+            if charset_match:
+                encoding = charset_match.group(1)
+
+            try:
+                html_text = html_bytes.decode(encoding)
+            except (UnicodeDecodeError, LookupError):
+                html_text = html_bytes.decode("utf-8", errors="replace")
+
+            # 使用 HTMLReadabilityParser 提取正文
+            parser = HTMLReadabilityParser(base_url=raw_url)
+            try:
+                parser.feed(html_text)
+            except Exception as parse_err:
+                logger.warning("HTML 解析警告: %s", parse_err)
+
+            # 获取元数据结果
+            result = parser.get_result()
+
+            # 提取正文 HTML
+            content_html = parser.extract_content(html_text)
+            result["content"] = content_html
+
+            # 如果没有从 <title> 获取到标题，尝试用 <h1>
+            if not result["title"] or result["title"] == "未知标题":
+                h1_match = re.search(r'<h1[^>]*>(.*?)</h1>', html_text, flags=re.DOTALL | re.IGNORECASE)
+                if h1_match:
+                    result["title"] = re.sub(r'<[^>]+>', '', h1_match.group(1)).strip()
+
+            # 如果没有站点名称，从域名提取
+            if not result["site_name"]:
+                parsed_url = urlparse(raw_url)
+                result["site_name"] = parsed_url.netloc
+
+            logger.info("阅读模式提取完成: 标题=%s, 图片数=%d",
+                        result["title"], len(result["images"]))
+
+            # 返回 JSON 结果
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8"))
+
+        except HTTPError as e:
+            logger.error("阅读模式 HTTP 错误: %s -> %d %s", raw_url, e.code, e.reason)
+            self._send_readability_error(e.code, f"抓取失败: HTTP {e.code} {e.reason}")
+        except URLError as e:
+            logger.error("阅读模式 URL 错误: %s -> %s", raw_url, e.reason)
+            self._send_readability_error(502, f"无法连接目标服务器: {e.reason}")
+        except Exception as e:
+            logger.error("阅读模式异常: %s -> %s", raw_url, e)
+            self._send_readability_error(500, f"提取失败: {e}")
+
+    def _send_readability_error(self, status_code: int, message: str) -> None:
+        """
+        发送阅读模式错误响应。
+
+        Args:
+            status_code: HTTP 状态码
+            message: 错误信息
+        """
+        self.send_response(status_code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        error_body = json.dumps(
+            {"error": message, "title": "", "content": "", "images": [], "source": "", "site_name": ""},
+            ensure_ascii=False,
+        ).encode("utf-8")
+        self.wfile.write(error_body)
 
 
 class DashboardServer:
