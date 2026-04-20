@@ -1,0 +1,1440 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WorkSpace Pro</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%234F7CFF'/%3E%3Ctext x='16' y='22' text-anchor='middle' fill='white' font-size='18' font-family='sans-serif' font-weight='bold'%3EW%3C/text%3E%3C/svg%3E">
+<style>
+/* ========== Reset & Base ========== */
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#F5F6F8;--bg-white:#FFFFFF;--bg-hover:#EBEDF0;
+  --text-primary:#1F2329;--text-secondary:#646A73;--text-tertiary:#8F959E;
+  --border:#DEE0E3;--border-light:#E8E8E8;
+  --accent:#3370FF;--accent-hover:#2860E1;--accent-light:#E8F0FF;
+  --green:#34C759;--green-bg:#E8F8EE;--red:#F54A45;--red-bg:#FDECEE;
+  --yellow:#FF9F18;--yellow-bg:#FFF3E0;
+  --sidebar-bg:#FFFFFF;--nav-bg:#FFFFFF;--status-bg:#FFFFFF;
+  --shadow-sm:0 1px 2px rgba(0,0,0,0.06);--shadow-md:0 4px 12px rgba(0,0,0,0.08);
+  --shadow-lg:0 8px 24px rgba(0,0,0,0.12);
+  --radius:8px;--radius-sm:4px;--radius-lg:12px;
+  --font-stack:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --font-mono:Consolas,Monaco,"Courier New",monospace;
+  --nav-h:48px;--status-h:32px;
+}
+html,body{height:100%;font-family:var(--font-stack);font-size:14px;color:var(--text-primary);background:var(--bg);overflow:hidden}
+body{display:flex;flex-direction:column}
+
+/* ========== Entry/Exit Animations ========== */
+#entry-overlay{position:fixed;inset:0;background:#000;z-index:9999;pointer-events:none;animation:entryAnim 800ms ease forwards}
+@keyframes entryAnim{
+  0%{opacity:1}
+  0%{opacity:1}
+  60%{opacity:1}
+  100%{opacity:0}
+}
+#exit-overlay{position:fixed;inset:0;z-index:9998;pointer-events:none;opacity:0}
+#exit-overlay.active{animation:exitAnim 500ms ease forwards}
+@keyframes exitAnim{
+  0%{opacity:0;backdrop-filter:blur(0);background:transparent}
+  40%{opacity:1;backdrop-filter:blur(8px);background:rgba(0,0,0,0.6)}
+  100%{opacity:1;backdrop-filter:blur(0);background:#000}
+}
+#app-wrapper{animation:contentFadeIn 800ms ease forwards;opacity:0;transform:scale(0.97)}
+@keyframes contentFadeIn{
+  0%{opacity:0;transform:scale(0.97)}
+  37.5%{opacity:0;transform:scale(0.97)}
+  100%{opacity:1;transform:scale(1)}
+}
+
+/* ========== Top Navbar ========== */
+.navbar{height:var(--nav-h);background:var(--nav-bg);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 16px;flex-shrink:0;z-index:100;position:relative}
+.navbar-left{display:flex;align-items:center;gap:10px}
+.nav-logo{width:28px;height:28px;background:var(--accent);border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:15px;position:relative}
+.nav-logo::after{content:'';position:absolute;top:-1px;right:-1px;width:8px;height:8px;background:var(--green);border-radius:50%;border:2px solid var(--nav-bg)}
+.nav-title{font-size:15px;font-weight:600;color:var(--text-primary);letter-spacing:-0.3px}
+.navbar-center{font-size:13px;color:var(--text-secondary);font-variant-numeric:tabular-nums}
+.navbar-right{cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:var(--radius);transition:background .2s}
+.navbar-right:hover{background:var(--bg-hover)}
+.navbar-right svg{width:18px;height:18px;color:var(--text-secondary)}
+.navbar-actions{display:flex;align-items:center;gap:4px}
+.nav-btn{cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:var(--radius);transition:background .2s;border:none;background:none}
+.nav-btn:hover{background:var(--bg-hover)}
+.nav-btn svg{width:18px;height:18px;color:var(--text-secondary)}
+.nav-btn.active svg{color:var(--accent)}
+
+/* ========== Embed Panel (参考文档) ========== */
+.embed-panel{width:0;min-width:0;background:var(--sidebar-bg);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;transition:width .3s ease,min-width .3s ease;flex-shrink:0}
+.embed-panel.open{width:35%;min-width:280px;max-width:480px}
+.embed-panel-header{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border-light);flex-shrink:0;background:#FAFBFC}
+.embed-panel-title{font-size:12px;font-weight:600;color:var(--text-secondary)}
+.embed-panel-close{cursor:pointer;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:4px;transition:background .15s;border:none;background:none;font-size:14px;color:var(--text-tertiary)}
+.embed-panel-close:hover{background:var(--bg-hover);color:var(--text-primary)}
+.embed-panel-url{padding:4px 8px;border-bottom:1px solid var(--border-light);flex-shrink:0}
+.embed-url-input{width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px 8px;font-size:11px;outline:none;font-family:var(--font-mono);color:var(--text-secondary);background:var(--bg)}
+.embed-url-input:focus{border-color:var(--accent);color:var(--text-primary)}
+.embed-panel-body{flex:1;overflow:hidden;position:relative}
+.embed-panel-body iframe{width:100%;height:100%;border:none}
+.embed-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-tertiary);font-size:13px;gap:8px}
+.embed-placeholder-icon{font-size:32px;opacity:.4}
+.embed-error{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-tertiary);font-size:12px;gap:6px;padding:20px;text-align:center}
+.embed-error-icon{font-size:28px;color:var(--yellow)}
+
+/* ========== URL Input Modal ========== */
+.url-modal-box{background:var(--bg-white);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);padding:24px;max-width:480px;width:90%;transform:scale(0.95);transition:transform .25s}
+.modal-overlay.show .url-modal-box{transform:scale(1)}
+.url-modal-title{font-size:16px;font-weight:600;margin-bottom:4px}
+.url-modal-desc{font-size:12px;color:var(--text-secondary);margin-bottom:16px}
+.url-input-group{display:flex;gap:8px;margin-bottom:12px}
+.url-input-field{flex:1;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-size:13px;outline:none;font-family:var(--font-mono);transition:border-color .2s}
+.url-input-field:focus{border-color:var(--accent)}
+.url-input-field::placeholder{color:var(--text-tertiary);font-family:var(--font-stack)}
+.url-confirm-btn{background:var(--accent);color:#fff;border:none;border-radius:var(--radius-sm);padding:8px 16px;font-size:13px;cursor:pointer;font-family:var(--font-stack);transition:background .2s;white-space:nowrap}
+.url-confirm-btn:hover{background:var(--accent-hover)}
+.url-hint{font-size:11px;color:var(--text-tertiary);line-height:1.5}
+.url-history{margin-top:12px}
+.url-history-title{font-size:11px;color:var(--text-tertiary);margin-bottom:6px}
+.url-history-list{display:flex;flex-direction:column;gap:4px}
+.url-history-item{display:flex;align-items:center;justify-content:space-between;padding:4px 8px;border-radius:var(--radius-sm);cursor:pointer;transition:background .15s;font-size:11px;font-family:var(--font-mono);color:var(--text-secondary)}
+.url-history-item:hover{background:var(--bg)}
+.url-history-item .url-del{color:var(--text-tertiary);cursor:pointer;font-size:12px;padding:0 4px}
+.url-history-item .url-del:hover{color:var(--red)}
+
+/* ========== Main Content Area ========== */
+.main-area{flex:1;display:flex;overflow:hidden;position:relative}
+.content-panel{flex:1;overflow-y:auto;padding:16px;min-width:0}
+.todo-panel{width:35%;min-width:300px;max-width:420px;background:var(--sidebar-bg);border-left:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
+
+/* ========== Status Bar ========== */
+.statusbar{height:var(--status-h);background:var(--status-bg);border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:12px;color:var(--text-tertiary);flex-shrink:0}
+.statusbar-left{display:flex;align-items:center;gap:8px}
+.status-dot{width:7px;height:7px;background:var(--green);border-radius:50%;display:inline-block;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+/* ========== Role Selector Modal ========== */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .25s}
+.modal-overlay.show{opacity:1;pointer-events:auto}
+.modal-box{background:var(--bg-white);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);padding:32px;max-width:680px;width:90%;transform:scale(0.95);transition:transform .25s}
+.modal-overlay.show .modal-box{transform:scale(1)}
+.modal-title{font-size:20px;font-weight:600;text-align:center;margin-bottom:8px}
+.modal-subtitle{font-size:13px;color:var(--text-secondary);text-align:center;margin-bottom:24px}
+.role-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.role-card{border:2px solid var(--border-light);border-radius:var(--radius);padding:20px 12px;text-align:center;cursor:pointer;transition:all .2s}
+.role-card:hover{border-color:var(--accent);background:var(--accent-light);transform:translateY(-2px)}
+.role-card.selected{border-color:var(--accent);background:var(--accent-light)}
+.role-icon{font-size:32px;margin-bottom:8px;display:block}
+.role-name{font-size:14px;font-weight:600;margin-bottom:4px}
+.role-desc{font-size:11px;color:var(--text-secondary);line-height:1.4}
+
+/* ========== Todo Panel ========== */
+.todo-header{padding:16px;border-bottom:1px solid var(--border-light)}
+.todo-header-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.todo-title{font-size:15px;font-weight:600}
+.todo-count{font-size:12px;color:var(--text-secondary);background:var(--bg);padding:2px 8px;border-radius:10px}
+.todo-progress{height:4px;background:var(--bg);border-radius:2px;overflow:hidden}
+.todo-progress-bar{height:100%;background:var(--accent);border-radius:2px;transition:width .3s}
+.todo-list{flex:1;overflow-y:auto;padding:8px 16px}
+.todo-item{display:flex;align-items:center;gap:8px;padding:8px;border-radius:var(--radius-sm);cursor:grab;transition:background .15s;margin-bottom:2px}
+.todo-item:hover{background:var(--bg)}
+.todo-item.dragging{opacity:.5;background:var(--accent-light)}
+.todo-item.drag-over{border-top:2px solid var(--accent)}
+.todo-checkbox{width:16px;height:16px;border:2px solid var(--border);border-radius:4px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.todo-checkbox.checked{background:var(--accent);border-color:var(--accent)}
+.todo-checkbox.checked::after{content:'✓';color:#fff;font-size:11px;font-weight:700}
+.todo-text{flex:1;font-size:13px;line-height:1.4;word-break:break-word}
+.todo-text.done{text-decoration:line-through;color:var(--text-tertiary)}
+.todo-delete{width:20px;height:20px;display:flex;align-items:center;justify-content:center;border-radius:4px;cursor:pointer;color:var(--text-tertiary);font-size:14px;opacity:0;transition:all .15s;flex-shrink:0}
+.todo-item:hover .todo-delete{opacity:1}
+.todo-delete:hover{background:var(--red-bg);color:var(--red)}
+.todo-input-area{padding:12px 16px;border-top:1px solid var(--border-light);display:flex;gap:8px}
+.todo-input{flex:1;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:13px;outline:none;font-family:var(--font-stack);transition:border-color .2s}
+.todo-input:focus{border-color:var(--accent)}
+.todo-add-btn{background:var(--accent);color:#fff;border:none;border-radius:var(--radius-sm);padding:6px 14px;font-size:13px;cursor:pointer;font-family:var(--font-stack);transition:background .2s}
+.todo-add-btn:hover{background:var(--accent-hover)}
+
+/* ========== Developer Mode ========== */
+.dev-container{display:flex;flex-direction:column;gap:12px}
+.diff-viewer{height:420px;background:var(--bg-white);border-radius:var(--radius);border:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+.diff-header{display:flex;align-items:center;gap:12px;padding:8px 14px;border-bottom:1px solid var(--border-light);background:#FAFBFC;flex-shrink:0}
+.diff-filename{font-family:var(--font-mono);font-size:13px;font-weight:500}
+.diff-stats{font-size:12px;color:var(--green);font-weight:500}
+.diff-stats .del{color:var(--red)}
+.diff-tag{font-size:11px;background:var(--accent-light);color:var(--accent);padding:2px 8px;border-radius:10px}
+.diff-body{flex:1;overflow-y:auto;font-family:var(--font-mono);font-size:12.5px;line-height:1.7}
+.diff-line{display:flex;padding:0 14px;white-space:pre}
+.diff-line-num{width:40px;text-align:right;color:var(--text-tertiary);user-select:none;flex-shrink:0;margin-right:14px}
+.diff-line.add{background:#E6FFED}
+.diff-line.del{background:#FFEBE9}
+.diff-line.add .diff-line-num{color:#22863A}
+.diff-line.del .diff-line-num{color:#CB2431}
+.diff-line-content{flex:1}
+/* Syntax highlighting */
+.syn-kw{color:#CF222E}.syn-str{color:#0A3069}.syn-cmt{color:#6E7781;font-style:italic}.syn-fn{color:#8250DF}.syn-num{color:#0550AE}.syn-op{color:#CF222E}.syn-dec{color:#953800}
+
+.terminal-panel{height:220px;background:#1E1E1E;border-radius:var(--radius);border:1px solid #333;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+.terminal-header{display:flex;align-items:center;gap:8px;padding:6px 12px;background:#2D2D2D;flex-shrink:0}
+.terminal-dot{width:10px;height:10px;border-radius:50%}
+.terminal-dot.r{background:#FF5F56}.terminal-dot.y{background:#FFBD2E}.terminal-dot.g{background:#27C93F}
+.terminal-tab{font-size:11px;color:#999;margin-left:8px;font-family:var(--font-mono)}
+.terminal-body{flex:1;overflow-y:auto;padding:8px 12px;font-family:var(--font-mono);font-size:12px;color:#D4D4D4;line-height:1.6}
+.terminal-body .t-green{color:#4EC9B0}.terminal-body .t-yellow{color:#DCDCAA}.terminal-body .t-blue{color:#569CD6}.terminal-body .t-red{color:#F44747}.terminal-body .t-gray{color:#808080}.terminal-body .t-white{color:#D4D4D4}
+.terminal-cursor{display:inline-block;width:7px;height:14px;background:#D4D4D4;animation:blink 1s step-end infinite;vertical-align:text-bottom}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+/* ========== Designer Mode ========== */
+.designer-container{display:flex;flex-direction:column;height:100%;gap:12px}
+.designer-toolbar{display:flex;align-items:center;gap:4px;padding:6px 10px;background:var(--bg-white);border:1px solid var(--border);border-radius:var(--radius);flex-shrink:0}
+.tool-btn{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:var(--radius-sm);cursor:pointer;font-size:16px;transition:background .15s;color:var(--text-secondary)}
+.tool-btn:hover{background:var(--bg-hover)}
+.tool-btn.active{background:var(--accent-light);color:var(--accent)}
+.tool-sep{width:1px;height:20px;background:var(--border);margin:0 4px}
+.designer-main{flex:1;display:flex;gap:12px;min-height:0;overflow:hidden}
+.designer-canvas{flex:1;background:var(--bg-white);border:1px solid var(--border);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
+.phone-frame{width:260px;height:500px;border:3px solid #1F2329;border-radius:28px;background:#fff;position:relative;overflow:hidden;box-shadow:var(--shadow-md)}
+.phone-notch{width:100px;height:20px;background:#1F2329;border-radius:0 0 12px 12px;margin:0 auto;position:relative;z-index:2}
+.phone-header{height:40px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:500}
+.phone-banner{height:100px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);margin:8px;border-radius:8px}
+.phone-content{padding:8px 12px}
+.phone-content h3{font-size:14px;font-weight:600;margin-bottom:4px}
+.phone-content p{font-size:10px;color:var(--text-secondary);line-height:1.4;margin-bottom:8px}
+.phone-cta{display:block;background:var(--accent);color:#fff;text-align:center;padding:6px;border-radius:6px;font-size:11px;font-weight:500;margin-bottom:8px}
+.phone-tabbar{position:absolute;bottom:0;left:0;right:0;height:44px;background:#FAFAFA;border-top:1px solid var(--border-light);display:flex;align-items:center;justify-content:space-around}
+.phone-tab{font-size:9px;color:var(--text-tertiary);text-align:center}
+.phone-tab.active{color:var(--accent)}
+.phone-tab-icon{font-size:14px;display:block;margin-bottom:1px}
+/* Selection overlay */
+.selection-box{position:absolute;border:2px solid #3370FF;pointer-events:none;z-index:10;transition:all .4s ease}
+.selection-box::before,.selection-box::after{content:'';position:absolute;width:6px;height:6px;background:#3370FF;border:1px solid #fff;border-radius:1px}
+.selection-box::before{top:-4px;left:-4px}
+.selection-box::after{bottom:-4px;right:-4px}
+.sel-label{position:absolute;top:-18px;left:0;background:#3370FF;color:#fff;font-size:10px;padding:1px 6px;border-radius:3px;white-space:nowrap}
+
+.designer-right{width:220px;display:flex;flex-direction:column;gap:12px;flex-shrink:0;overflow-y:auto}
+.panel-section{background:var(--bg-white);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.panel-section-title{font-size:12px;font-weight:600;padding:8px 10px;border-bottom:1px solid var(--border-light);color:var(--text-secondary)}
+.layer-tree{padding:4px 0}
+.layer-item{display:flex;align-items:center;gap:6px;padding:4px 10px;font-size:12px;cursor:pointer;transition:background .15s}
+.layer-item:hover{background:var(--bg-hover)}
+.layer-item.active{background:var(--accent-light);color:var(--accent)}
+.layer-icon{font-size:11px;color:var(--text-tertiary);width:16px;text-align:center}
+.layer-toggle{margin-left:auto;font-size:10px;color:var(--text-tertiary);cursor:pointer}
+.props-grid{padding:8px 10px;display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.prop-item{font-size:11px}
+.prop-label{color:var(--text-tertiary);margin-bottom:2px}
+.prop-value{color:var(--text-primary);font-weight:500}
+.designer-info{font-size:11px;color:var(--text-tertiary);padding:6px 10px;background:var(--bg-white);border:1px solid var(--border);border-radius:var(--radius);flex-shrink:0;display:flex;justify-content:space-between}
+
+/* ========== PM Mode ========== */
+.pm-container{max-width:760px;margin:0 auto;padding-bottom:24px}
+.pm-doc{background:var(--bg-white);border:1px solid var(--border);border-radius:var(--radius);padding:32px 40px;box-shadow:var(--shadow-sm)}
+.pm-doc-title{font-size:22px;font-weight:700;margin-bottom:12px;line-height:1.3}
+.pm-meta{display:flex;align-items:center;gap:10px;margin-bottom:24px;flex-wrap:wrap}
+.pm-tag{font-size:11px;padding:3px 10px;border-radius:10px;font-weight:500}
+.pm-tag.review{background:var(--yellow-bg);color:var(--yellow)}
+.pm-meta-text{font-size:12px;color:var(--text-secondary)}
+.pm-section{margin-bottom:24px}
+.pm-section h2{font-size:16px;font-weight:600;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border-light)}
+.pm-section p{font-size:13px;line-height:1.7;color:var(--text-secondary);margin-bottom:8px}
+.pm-checklist{list-style:none}
+.pm-check-item{display:flex;align-items:flex-start;gap:8px;padding:6px 0;font-size:13px}
+.pm-check{width:16px;height:16px;border:2px solid var(--border);border-radius:4px;flex-shrink:0;margin-top:2px;display:flex;align-items:center;justify-content:center;cursor:default}
+.pm-check.done{background:var(--green);border-color:var(--green)}
+.pm-check.done::after{content:'✓';color:#fff;font-size:10px;font-weight:700}
+.pm-check-text.done{text-decoration:line-through;color:var(--text-tertiary)}
+.pm-chart{width:100%;height:180px;border:1px solid var(--border-light);border-radius:var(--radius);overflow:hidden;padding:12px}
+.pm-chart svg{width:100%;height:100%}
+.pm-timeline{position:relative;padding-left:24px}
+.pm-timeline::before{content:'';position:absolute;left:8px;top:4px;bottom:4px;width:2px;background:var(--border)}
+.pm-tl-item{position:relative;margin-bottom:16px}
+.pm-tl-item::before{content:'';position:absolute;left:-20px;top:4px;width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--accent-light)}
+.pm-tl-item.done::before{background:var(--green);border-color:var(--green-bg)}
+.pm-tl-date{font-size:11px;color:var(--text-tertiary);margin-bottom:2px}
+.pm-tl-title{font-size:13px;font-weight:500}
+.pm-tl-desc{font-size:12px;color:var(--text-secondary)}
+.pm-footer{display:flex;gap:16px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border-light)}
+.pm-footer-item{font-size:12px;color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;gap:4px}
+.pm-footer-item:hover{color:var(--accent)}
+.pm-footer-badge{background:var(--bg);padding:1px 6px;border-radius:8px;font-size:11px}
+
+/* ========== Operator Mode ========== */
+.op-container{display:flex;flex-direction:column;gap:12px;height:100%}
+.op-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex-shrink:0}
+.op-card{background:var(--bg-white);border:1px solid var(--border);border-radius:var(--radius);padding:16px;transition:box-shadow .2s}
+.op-card:hover{box-shadow:var(--shadow-md)}
+.op-card-label{font-size:12px;color:var(--text-secondary);margin-bottom:6px}
+.op-card-value{font-size:24px;font-weight:700;margin-bottom:4px;font-variant-numeric:tabular-nums}
+.op-card-change{font-size:12px;font-weight:500}
+.op-card-change.up{color:var(--green)}.op-card-change.down{color:var(--red)}
+.op-chart{background:var(--bg-white);border:1px solid var(--border);border-radius:var(--radius);padding:16px;flex-shrink:0}
+.op-chart-title{font-size:13px;font-weight:600;margin-bottom:12px}
+.op-bar-chart{display:flex;align-items:flex-end;gap:12px;height:140px;padding-bottom:20px;position:relative}
+.op-bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end}
+.op-bar{width:100%;background:var(--accent);border-radius:4px 4px 0 0;transition:height .6s ease;min-height:4px;position:relative}
+.op-bar-val{font-size:10px;color:var(--text-secondary);font-variant-numeric:tabular-nums}
+.op-bar-label{font-size:10px;color:var(--text-tertiary);position:absolute;bottom:-18px}
+.op-content-list{background:var(--bg-white);border:1px solid var(--border);border-radius:var(--radius);flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+.op-content-header{padding:12px 16px;border-bottom:1px solid var(--border-light);font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.op-content-count{font-size:11px;color:var(--text-tertiary);font-weight:400}
+.op-content-items{flex:1;overflow-y:auto;padding:4px 0}
+.op-content-item{display:flex;align-items:center;gap:10px;padding:8px 16px;transition:background .15s}
+.op-content-item:hover{background:var(--bg)}
+.op-content-icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
+.op-content-icon.article{background:#E8F0FF;color:var(--accent)}
+.op-content-icon.video{background:#F3E8FF;color:#8250DF}
+.op-content-icon.activity{background:#E8F8EE;color:var(--green)}
+.op-content-info{flex:1;min-width:0}
+.op-content-title{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.op-content-meta{font-size:11px;color:var(--text-tertiary);margin-top:1px}
+.op-content-status{font-size:11px;padding:2px 8px;border-radius:10px;flex-shrink:0}
+.op-content-status.scheduled{background:var(--accent-light);color:var(--accent)}
+.op-content-status.reviewing{background:var(--yellow-bg);color:var(--yellow)}
+
+/* ========== Scrollbar ========== */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#C4C4C4;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#999}
+
+/* ========== Responsive ========== */
+@media(max-width:900px){
+  .todo-panel{width:280px;min-width:240px}
+  .role-grid{grid-template-columns:repeat(2,1fr)}
+  .op-cards{grid-template-columns:1fr}
+  .designer-right{width:180px}
+}
+@media(max-width:640px){
+  .todo-panel{display:none}
+  .role-grid{grid-template-columns:1fr 1fr}
+  .designer-right{display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- Entry Animation Overlay -->
+<div id="entry-overlay"></div>
+<!-- Exit Animation Overlay -->
+<div id="exit-overlay"></div>
+
+<!-- App Wrapper -->
+<div id="app-wrapper">
+
+  <!-- Top Navbar -->
+  <nav class="navbar">
+    <div class="navbar-left">
+      <div class="nav-logo">W</div>
+      <span class="nav-title">WorkSpace Pro</span>
+    </div>
+    <div class="navbar-center" id="clock"></div>
+    <div class="navbar-actions">
+      <button class="nav-btn" id="embed-btn" title="参考文档">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+      </button>
+      <div class="navbar-right" id="settings-btn" title="切换角色">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main Area -->
+  <div class="main-area">
+    <div class="content-panel" id="content-panel"></div>
+    <!-- Embed Panel (参考文档) -->
+    <div class="embed-panel" id="embed-panel">
+      <div class="embed-panel-header">
+        <span class="embed-panel-title">参考文档</span>
+        <button class="embed-panel-close" id="embed-close-btn" title="关闭">✕</button>
+      </div>
+      <div class="embed-panel-url">
+        <input class="embed-url-input" id="embed-url-input" placeholder="输入网址..." spellcheck="false">
+      </div>
+      <div class="embed-panel-body" id="embed-body">
+        <div class="embed-placeholder" id="embed-placeholder">
+          <span class="embed-placeholder-icon">📄</span>
+          <span>点击上方输入框添加参考链接</span>
+        </div>
+      </div>
+    </div>
+    <div class="todo-panel" id="todo-panel">
+      <div class="todo-header">
+        <div class="todo-header-top">
+          <span class="todo-title">待办事项</span>
+          <span class="todo-count" id="todo-count">0/0</span>
+        </div>
+        <div class="todo-progress"><div class="todo-progress-bar" id="todo-progress-bar"></div></div>
+      </div>
+      <div class="todo-list" id="todo-list"></div>
+      <div class="todo-input-area">
+        <input class="todo-input" id="todo-input" placeholder="添加待办事项..." maxlength="100">
+        <button class="todo-add-btn" id="todo-add-btn">添加</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status Bar -->
+  <div class="statusbar">
+    <div class="statusbar-left">
+      <span class="status-dot"></span>
+      <span>已连接</span>
+      <span>· 自动保存已开启</span>
+    </div>
+    <span>v2.0.1</span>
+  </div>
+
+</div>
+
+<!-- URL Input Modal -->
+<div class="modal-overlay" id="url-modal">
+  <div class="url-modal-box">
+    <div class="url-modal-title">添加参考文档</div>
+    <div class="url-modal-desc">输入要嵌入的网页地址，将在侧边栏中显示</div>
+    <div class="url-input-group">
+      <input class="url-input-field" id="url-input-field" placeholder="https://example.com" spellcheck="false">
+      <button class="url-confirm-btn" id="url-confirm-btn">打开</button>
+    </div>
+    <div class="url-hint">提示：部分网站（如知乎、微博）禁止被嵌入显示，推荐使用小说网站等允许嵌入的页面。输入后按 Enter 快速确认。</div>
+    <div class="url-history" id="url-history" style="display:none">
+      <div class="url-history-title">最近使用</div>
+      <div class="url-history-list" id="url-history-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Role Selector Modal -->
+<div class="modal-overlay" id="role-modal">
+  <div class="modal-box">
+    <div class="modal-title">选择你的工作模式</div>
+    <div class="modal-subtitle">首次使用请选择一个角色，可随时在设置中切换</div>
+    <div class="role-grid">
+      <div class="role-card" data-role="developer">
+        <span class="role-icon">&lt;/&gt;</span>
+        <div class="role-name">程序员</div>
+        <div class="role-desc">代码审查与终端操作</div>
+      </div>
+      <div class="role-card" data-role="designer">
+        <span class="role-icon">&#9634;</span>
+        <div class="role-name">设计师</div>
+        <div class="role-desc">UI 设计稿与图层管理</div>
+      </div>
+      <div class="role-card" data-role="pm">
+        <span class="role-icon">&#9998;</span>
+        <div class="role-name">产品经理</div>
+        <div class="role-desc">需求文档与项目规划</div>
+      </div>
+      <div class="role-card" data-role="operator">
+        <span class="role-icon">&#9881;</span>
+        <div class="role-name">运营</div>
+        <div class="role-desc">数据看板与内容管理</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ========== Global State ========== */
+let currentRole = null;
+let exitPollingId = null;
+
+/* ========== Utility ========== */
+function $(sel){return document.querySelector(sel)}
+function $$(sel){return document.querySelectorAll(sel)}
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+
+/* ========== Clock ========== */
+function updateClock(){
+  const now=new Date();
+  const days=['周日','周一','周二','周三','周四','周五','周六'];
+  const y=now.getFullYear(),m=String(now.getMonth()+1).padStart(2,'0'),d=String(now.getDate()).padStart(2,'0');
+  const h=String(now.getHours()).padStart(2,'0'),mi=String(now.getMinutes()).padStart(2,'0'),s=String(now.getSeconds()).padStart(2,'0');
+  $('#clock').textContent=`${days[now.getDay()]} ${y}-${m}-${d} ${h}:${mi}:${s}`;
+}
+setInterval(updateClock,1000);
+updateClock();
+
+/* ========== Role Management ========== */
+function getRoleFromURL(){
+  const p=new URLSearchParams(location.search);
+  return p.get('role')||null;
+}
+function getRoleFromStorage(){
+  return localStorage.getItem('wsp_role')||null;
+}
+function saveRole(role){
+  localStorage.setItem('wsp_role',role);
+  currentRole=role;
+}
+function showRoleModal(force){
+  const modal=$('#role-modal');
+  modal.classList.add('show');
+  $$('.role-card').forEach(c=>{
+    c.classList.toggle('selected',c.dataset.role===currentRole);
+  });
+}
+function hideRoleModal(){$('#role-modal').classList.remove('show')}
+function selectRole(role){
+  saveRole(role);
+  hideRoleModal();
+  renderContent();
+  updateRoleCardSelection();
+}
+function updateRoleCardSelection(){
+  $$('.role-card').forEach(c=>c.classList.toggle('selected',c.dataset.role===currentRole));
+}
+
+/* ========== Embed Panel (参考文档) ========== */
+const EMBED_STORAGE_KEY='wsp_embed_url';
+const EMBED_HISTORY_KEY='wsp_embed_history';
+
+function getEmbedUrl(){
+  try{return localStorage.getItem(EMBED_STORAGE_KEY)||''}catch(e){return ''}
+}
+function saveEmbedUrl(url){
+  try{localStorage.setItem(EMBED_STORAGE_KEY,url)}catch(e){}
+}
+function getEmbedHistory(){
+  try{const d=localStorage.getItem(EMBED_HISTORY_KEY);return d?JSON.parse(d):[]}catch(e){return []}
+}
+function saveEmbedHistory(history){
+  try{localStorage.setItem(EMBED_HISTORY_KEY,JSON.stringify(history.slice(0,8)))}catch(e){}
+}
+function addToHistory(url){
+  if(!url)return;
+  let h=getEmbedHistory().filter(u=>u!==url);
+  h.unshift(url);
+  saveEmbedHistory(h);
+}
+function removeFromHistory(url){
+  saveEmbedHistory(getEmbedHistory().filter(u=>u!==url));
+}
+
+function showUrlModal(){
+  const modal=$('#url-modal');
+  const input=$('#url-input-field');
+  modal.classList.add('show');
+  input.value=getEmbedUrl();
+  renderUrlHistory();
+  setTimeout(()=>input.focus(),100);
+}
+function hideUrlModal(){$('#url-modal').classList.remove('show')}
+
+function renderUrlHistory(){
+  const h=getEmbedHistory();
+  const container=$('#url-history');
+  const list=$('#url-history-list');
+  if(!h.length){container.style.display='none';return}
+  container.style.display='block';
+  list.innerHTML=h.map(u=>`<div class="url-history-item" data-url="${u}"><span>${u.length>40?u.slice(0,40)+'…':u}</span><span class="url-del" data-url="${u}">✕</span></div>`).join('');
+  list.querySelectorAll('.url-history-item').forEach(item=>{
+    item.addEventListener('click',e=>{
+      if(e.target.classList.contains('url-del')){
+        e.stopPropagation();
+        removeFromHistory(e.target.dataset.url);
+        renderUrlHistory();
+        return;
+      }
+      loadEmbedUrl(item.dataset.url);
+      hideUrlModal();
+    });
+  });
+}
+
+function confirmUrl(){
+  let url=$('#url-input-field').value.trim();
+  if(!url)return;
+  if(!url.startsWith('http://')&&!url.startsWith('https://'))url='https://'+url;
+  loadEmbedUrl(url);
+  hideUrlModal();
+}
+
+function loadEmbedUrl(url){
+  saveEmbedUrl(url);
+  addToHistory(url);
+  const panel=$('#embed-panel');
+  const body=$('#embed-body');
+  const input=$('#embed-url-input');
+  const placeholder=$('#embed-placeholder');
+  // Open panel
+  panel.classList.add('open');
+  $('#embed-btn').classList.add('active');
+  input.value=url;
+  // Remove placeholder & old iframe
+  if(placeholder)placeholder.style.display='none';
+  const oldIframe=body.querySelector('iframe');
+  if(oldIframe)oldIframe.remove();
+  const oldError=body.querySelector('.embed-error');
+  if(oldError)oldError.remove();
+  // Create iframe
+  const iframe=document.createElement('iframe');
+  iframe.setAttribute('sandbox','allow-scripts allow-same-origin allow-forms allow-popups');
+  iframe.setAttribute('referrerpolicy','no-referrer');
+  iframe.style.cssText='width:100%;height:100%;border:none';
+  // Handle load errors (sites that block iframe)
+  iframe.addEventListener('load',()=>{
+    try{
+      // If we can access contentDocument, it loaded successfully
+      const doc=iframe.contentDocument||iframe.contentWindow.document;
+      if(doc&&doc.title)iframe.title=doc.title;
+    }catch(e){
+      // Cross-origin: likely loaded fine but we can't access it
+    }
+  });
+  iframe.addEventListener('error',()=>{
+    iframe.remove();
+    const errDiv=document.createElement('div');
+    errDiv.className='embed-error';
+    errDiv.innerHTML='<span class="embed-error-icon">⚠️</span><span>无法加载此页面</span><span style="font-size:11px">该网站可能禁止了嵌入显示，请尝试其他网站</span>';
+    body.appendChild(errDiv);
+  });
+  body.appendChild(iframe);
+  iframe.src=url;
+}
+
+function closeEmbedPanel(){
+  const panel=$('#embed-panel');
+  panel.classList.remove('open');
+  $('#embed-btn').classList.remove('active');
+}
+
+function initEmbed(){
+  // Navbar button
+  $('#embed-btn').addEventListener('click',()=>{
+    const panel=$('#embed-panel');
+    if(panel.classList.contains('open')){
+      // If already open and has URL, close it; otherwise show URL modal
+      if(getEmbedUrl()){
+        closeEmbedPanel();
+      }else{
+        showUrlModal();
+      }
+    }else{
+      const savedUrl=getEmbedUrl();
+      if(savedUrl){
+        loadEmbedUrl(savedUrl);
+      }else{
+        showUrlModal();
+      }
+    }
+  });
+  // Close button
+  $('#embed-close-btn').addEventListener('click',closeEmbedPanel);
+  // URL modal
+  $('#url-confirm-btn').addEventListener('click',confirmUrl);
+  $('#url-input-field').addEventListener('keydown',e=>{if(e.key==='Enter')confirmUrl()});
+  $('#url-modal').addEventListener('click',e=>{if(e.target===$('#url-modal'))hideUrlModal()});
+  // Panel URL input (direct edit)
+  const panelInput=$('#embed-url-input');
+  let panelInputTimer=null;
+  panelInput.addEventListener('keydown',e=>{
+    if(e.key==='Enter'){
+      let url=panelInput.value.trim();
+      if(!url)return;
+      if(!url.startsWith('http://')&&!url.startsWith('https://'))url='https://'+url;
+      loadEmbedUrl(url);
+    }
+  });
+  // Restore saved state
+  if(getEmbedUrl()){
+    // Don't auto-open, but mark button as available
+  }
+}
+
+/* ========== Init ========== */
+function init(){
+  const urlRole=getRoleFromURL();
+  const storedRole=getRoleFromStorage();
+  const role=urlRole||storedRole;
+  if(role&&['developer','designer','pm','operator'].includes(role)){
+    saveRole(role);
+    renderContent();
+  } else {
+    showRoleModal(true);
+  }
+  // Event listeners
+  $$('.role-card').forEach(c=>{
+    c.addEventListener('click',()=>selectRole(c.dataset.role));
+  });
+  $('#settings-btn').addEventListener('click',()=>showRoleModal(true));
+  $('#role-modal').addEventListener('click',e=>{
+    if(e.target===$('#role-modal'))hideRoleModal();
+  });
+  // Todo init
+  initTodo();
+  // Embed panel init
+  initEmbed();
+  // Exit polling
+  startExitPolling();
+}
+
+/* ========== Render Content ========== */
+function renderContent(){
+  const panel=$('#content-panel');
+  panel.innerHTML='';
+  switch(currentRole){
+    case 'developer': renderDeveloper(panel); break;
+    case 'designer': renderDesigner(panel); break;
+    case 'pm': renderPM(panel); break;
+    case 'operator': renderOperator(panel); break;
+  }
+}
+
+/* ================================================================
+   DEVELOPER MODE
+   ================================================================ */
+const diffTemplates=[
+  { // Python JWT Auth
+    filename:'main.py', stats:'+12 -3',
+    lines:[
+      {t:'normal',n:1,c:'<span class="syn-kw">import</span> jwt'},
+      {t:'normal',n:2,c:'<span class="syn-kw">from</span> datetime <span class="syn-kw">import</span> datetime, timedelta'},
+      {t:'normal',n:3,c:'<span class="syn-kw">from</span> functools <span class="syn-kw">import</span> wraps'},
+      {t:'normal',n:4,c:''},
+      {t:'normal',n:5,c:'<span class="syn-cmt"># JWT Configuration</span>'},
+      {t:'del',n:6,c:'<span class="syn-dec">SECRET_KEY</span> = <span class="syn-str">"old-secret-key-123"</span>'},
+      {t:'add',n:6,c:'<span class="syn-dec">SECRET_KEY</span> = os.environ[<span class="syn-str">"JWT_SECRET"</span>]'},
+      {t:'del',n:7,c:'<span class="syn-dec">ALGORITHM</span> = <span class="syn-str">"HS256"</span>'},
+      {t:'add',n:7,c:'<span class="syn-dec">ALGORITHM</span> = <span class="syn-str">"HS256"</span>'},
+      {t:'add',n:8,c:'<span class="syn-dec">ACCESS_TOKEN_EXPIRE</span> = timedelta(minutes=<span class="syn-num">30</span>)'},
+      {t:'normal',n:9,c:''},
+      {t:'normal',n:10,c:'<span class="syn-kw">def</span> <span class="syn-fn">create_access_token</span>(data: dict):'},
+      {t:'del',n:11,c:'    payload = {**data, <span class="syn-str">"exp"</span>: datetime.utcnow() + timedelta(hours=<span class="syn-num">1</span>)}'},
+      {t:'add',n:11,c:'    payload = {**data, <span class="syn-str">"exp"</span>: datetime.utcnow() + ACCESS_TOKEN_EXPIRE}'},
+      {t:'add',n:12,c:'    payload[<span class="syn-str">"jti"</span>] = str(uuid4())  <span class="syn-cmt"># unique token ID</span>'},
+      {t:'normal',n:13,c:'    <span class="syn-kw">return</span> jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)'},
+      {t:'normal',n:14,c:''},
+      {t:'normal',n:15,c:'<span class="syn-kw">def</span> <span class="syn-fn">require_auth</span>(func):'},
+      {t:'normal',n:16,c:'    @wraps(func)'},
+      {t:'del',n:17,c:'    <span class="syn-kw">def</span> <span class="syn-fn">wrapper</span>(*args, **kwargs):'},
+      {t:'add',n:17,c:'    <span class="syn-kw">def</span> <span class="syn-fn">wrapper</span>(request, *args, **kwargs):'},
+      {t:'add',n:18,c:'        token = request.headers.get(<span class="syn-str">"Authorization"</span>, <span class="syn-str">""</span>)'},
+      {t:'add',n:19,c:'        <span class="syn-kw">if not</span> token.startswith(<span class="syn-str">"Bearer "</span>):'},
+      {t:'add',n:20,c:'            <span class="syn-kw">raise</span> AuthError(<span class="syn-str">"Invalid token format"</span>)'},
+      {t:'normal',n:21,c:'        <span class="syn-kw">try</span>:'},
+      {t:'del',n:22,c:'            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])'},
+      {t:'add',n:22,c:'            payload = jwt.decode(token[<span class="syn-num">7</span>:], SECRET_KEY, algorithms=[ALGORITHM])'},
+      {t:'normal',n:23,c:'            request.user = payload'},
+      {t:'normal',n:24,c:'        <span class="syn-kw">except</span> jwt.ExpiredSignatureError:'},
+      {t:'add',n:25,c:'            <span class="syn-kw">raise</span> AuthError(<span class="syn-str">"Token expired"</span>, status_code=<span class="syn-num">401</span>)'},
+      {t:'normal',n:26,c:'            <span class="syn-kw">return</span> {<span class="syn-str">"error"</span>: <span class="syn-str">"Token expired"</span>}'},
+      {t:'normal',n:27,c:'        <span class="syn-kw">return</span> func(*args, **kwargs)'},
+      {t:'normal',n:28,c:'    <span class="syn-kw">return</span> wrapper'},
+    ]
+  },
+  { // React Component
+    filename:'UserProfile.tsx', stats:'+15 -5',
+    lines:[
+      {t:'normal',n:1,c:'<span class="syn-kw">import</span> React, { useState, useEffect, useCallback } <span class="syn-kw">from</span> <span class="syn-str">\'react\'</span>'},
+      {t:'normal',n:2,c:'<span class="syn-kw">import</span> { Avatar, Button, Spin } <span class="syn-kw">from</span> <span class="syn-str">\'@/components\'</span>'},
+      {t:'normal',n:3,c:'<span class="syn-kw">import</span> { fetchUserProfile, updateUserProfile } <span class="syn-kw">from</span> <span class="syn-str">\'@/api/user\'</span>'},
+      {t:'normal',n:4,c:''},
+      {t:'del',n:5,c:'<span class="syn-kw">interface</span> <span class="syn-fn">Props</span> {'},
+      {t:'del',n:6,c:'  userId: <span class="syn-dec">string</span>'},
+      {t:'del',n:7,c:'}'},
+      {t:'add',n:5,c:'<span class="syn-kw">interface</span> <span class="syn-fn">Props</span> {'},
+      {t:'add',n:6,c:'  userId: <span class="syn-dec">string</span>'},
+      {t:'add',n:7,c:'  onUpdate?: (data: UserProfile) => <span class="syn-dec">void</span>'},
+      {t:'add',n:8,c:'  readOnly?: <span class="syn-dec">boolean</span>'},
+      {t:'add',n:9,c:'}'},
+      {t:'normal',n:10,c:''},
+      {t:'del',n:11,c:'<span class="syn-kw">export const</span> <span class="syn-fn">UserProfile</span> = ({ userId }: Props) => {'},
+      {t:'add',n:11,c:'<span class="syn-kw">export const</span> <span class="syn-fn">UserProfile</span>: React.FC&lt;Props&gt; = ({ userId, onUpdate, readOnly }) => {'},
+      {t:'normal',n:12,c:'  <span class="syn-kw">const</span> [profile, setProfile] = useState&lt;UserProfile | <span class="syn-dec">null</span>&gt;(<span class="syn-kw">null</span>)'},
+      {t:'del',n:13,c:'  <span class="syn-kw">const</span> [loading, setLoading] = useState(<span class="syn-kw">true</span>)'},
+      {t:'add',n:13,c:'  <span class="syn-kw">const</span> [loading, setLoading] = useState(<span class="syn-kw">true</span>)'},
+      {t:'add',n:14,c:'  <span class="syn-kw">const</span> [editing, setEditing] = useState(<span class="syn-kw">false</span>)'},
+      {t:'add',n:15,c:'  <span class="syn-kw">const</span> [error, setError] = useState&lt;<span class="syn-dec">string</span> | <span class="syn-dec">null</span>&gt;(<span class="syn-kw">null</span>)'},
+      {t:'normal',n:16,c:''},
+      {t:'del',n:17,c:'  useEffect(() => {'},
+      {t:'del',n:18,c:'    fetchUserProfile(userId).then(setProfile).finally(() => setLoading(<span class="syn-kw">false</span>))'},
+      {t:'del',n:19,c:'  }, [userId])'},
+      {t:'add',n:17,c:'  <span class="syn-kw">const</span> <span class="syn-fn">loadProfile</span> = useCallback(<span class="syn-kw">async</span> () => {'},
+      {t:'add',n:18,c:'    <span class="syn-kw">try</span> {'},
+      {t:'add',n:19,c:'      setLoading(<span class="syn-kw">true</span>)'},
+      {t:'add',n:20,c:'      setError(<span class="syn-kw">null</span>)'},
+      {t:'add',n:21,c:'      <span class="syn-kw">const</span> data = <span class="syn-kw">await</span> fetchUserProfile(userId)'},
+      {t:'add',n:22,c:'      setProfile(data)'},
+      {t:'add',n:23,c:'    } <span class="syn-kw">catch</span> (e) {'},
+      {t:'add',n:24,c:'      setError(e.message)'},
+      {t:'add',n:25,c:'    } <span class="syn-kw">finally</span> {'},
+      {t:'add',n:26,c:'      setLoading(<span class="syn-kw">false</span>)'},
+      {t:'add',n:27,c:'    }'},
+      {t:'add',n:28,c:'  }, [userId])'},
+      {t:'add',n:29,c:''},
+      {t:'add',n:30,c:'  useEffect(() => { loadProfile() }, [loadProfile])'},
+      {t:'normal',n:31,c:''},
+      {t:'normal',n:32,c:'  <span class="syn-kw">if</span> (loading) <span class="syn-kw">return</span> &lt;Spin /&gt;'},
+      {t:'normal',n:33,c:'  <span class="syn-kw">if</span> (!profile) <span class="syn-kw">return</span> &lt;div&gt;User not found&lt;/div&gt;'},
+      {t:'normal',n:34,c:'  <span class="syn-kw">return</span> ('},
+    ]
+  },
+  { // SQL Query
+    filename:'analytics.sql', stats:'+8 -2',
+    lines:[
+      {t:'normal',n:1,c:'<span class="syn-cmt">-- User engagement analytics report</span>'},
+      {t:'normal',n:2,c:'<span class="syn-cmt">-- Generated: 2026-04-17</span>'},
+      {t:'normal',n:3,c:''},
+      {t:'del',n:4,c:'<span class="syn-kw">SELECT</span> u.id, u.name, <span class="syn-fn">COUNT</span>(o.id) <span class="syn-kw">AS</span> order_count'},
+      {t:'add',n:4,c:'<span class="syn-kw">SELECT</span>'},
+      {t:'add',n:5,c:'    u.id,'},
+      {t:'add',n:6,c:'    u.name,'},
+      {t:'add',n:7,c:'    u.email,'},
+      {t:'add',n:8,c:'    <span class="syn-fn">COUNT</span>(<span class="syn-kw">DISTINCT</span> o.id) <span class="syn-kw">AS</span> order_count,'},
+      {t:'add',n:9,c:'    <span class="syn-fn">SUM</span>(o.total_amount) <span class="syn-kw">AS</span> total_spent,'},
+      {t:'add',n:10,c:'    <span class="syn-fn">AVG</span>(o.total_amount) <span class="syn-kw">AS</span> avg_order_value'},
+      {t:'normal',n:11,c:'<span class="syn-kw">FROM</span> users u'},
+      {t:'normal',n:12,c:'<span class="syn-kw">LEFT JOIN</span> orders o <span class="syn-kw">ON</span> u.id = o.user_id'},
+      {t:'add',n:13,c:'<span class="syn-kw">LEFT JOIN</span> order_items oi <span class="syn-kw">ON</span> o.id = oi.order_id'},
+      {t:'normal',n:14,c:'<span class="syn-kw">WHERE</span> u.created_at >= <span class="syn-str">\'2026-01-01\'</span>'},
+      {t:'add',n:15,c:'  <span class="syn-kw">AND</span> o.status <span class="syn-kw">IN</span> (<span class="syn-str">\'completed\'</span>, <span class="syn-str">\'shipped\'</span>)'},
+      {t:'add',n:16,c:'  <span class="syn-kw">AND</span> o.created_at >= <span class="syn-str">\'2026-03-01\'</span>'},
+      {t:'normal',n:17,c:'<span class="syn-kw">GROUP BY</span> u.id, u.name'},
+      {t:'add',n:18,c:'<span class="syn-kw">GROUP BY</span> u.id, u.name, u.email'},
+      {t:'del',n:19,c:'<span class="syn-kw">HAVING</span> <span class="syn-fn">COUNT</span>(o.id) > <span class="syn-num">5</span>'},
+      {t:'add',n:19,c:'<span class="syn-kw">HAVING</span> <span class="syn-fn">COUNT</span>(<span class="syn-kw">DISTINCT</span> o.id) > <span class="syn-num">5</span>'},
+      {t:'normal',n:20,c:'<span class="syn-kw">ORDER BY</span> total_spent <span class="syn-kw">DESC</span>'},
+      {t:'add',n:21,c:'<span class="syn-kw">LIMIT</span> <span class="syn-num">100</span>;'},
+    ]
+  }
+];
+
+const terminalOutputs=[
+  {text:'<span class="t-green">$</span> pytest tests/ -v', cls:'t-white'},
+  {text:'<span class="t-gray">============================= test session starts ==============================</span>'},
+  {text:'<span class="t-white">platform linux -- Python 3.11.6, pytest-7.4.3, pluggy-1.3.0</span>'},
+  {text:'<span class="t-white">collected 24 items</span>'},
+  {text:''},
+  {text:'<span class="t-green">tests/test_auth.py::test_login_success PASSED</span>                            <span class="t-gray">[  4%]</span>'},
+  {text:'<span class="t-green">tests/test_auth.py::test_login_invalid_password PASSED</span>                  <span class="t-gray">[  8%]</span>'},
+  {text:'<span class="t-green">tests/test_auth.py::test_token_refresh PASSED</span>                          <span class="t-gray">[ 12%]</span>'},
+  {text:'<span class="t-green">tests/test_auth.py::test_expired_token PASSED</span>                          <span class="t-gray">[ 16%]</span>'},
+  {text:'<span class="t-green">tests/test_users.py::test_get_profile PASSED</span>                           <span class="t-gray">[ 20%]</span>'},
+  {text:'<span class="t-green">tests/test_users.py::test_update_profile PASSED</span>                        <span class="t-gray">[ 25%]</span>'},
+  {text:'<span class="t-yellow">tests/test_orders.py::test_create_order PASSED</span>                        <span class="t-gray">[ 29%]</span>'},
+  {text:'<span class="t-green">tests/test_orders.py::test_order_list PASSED</span>                           <span class="t-gray">[ 33%]</span>'},
+  {text:'<span class="t-green">tests/test_orders.py::test_cancel_order PASSED</span>                         <span class="t-gray">[ 37%]</span>'},
+  {text:'<span class="t-green">tests/test_api.py::test_rate_limiting PASSED</span>                           <span class="t-gray">[ 41%]</span>'},
+  {text:'<span class="t-green">tests/test_api.py::test_cors_headers PASSED</span>                            <span class="t-gray">[ 45%]</span>'},
+  {text:'<span class="t-green">tests/test_api.py::test_pagination PASSED</span>                              <span class="t-gray">[ 50%]</span>'},
+  {text:'<span class="t-green">tests/test_db.py::test_connection_pool PASSED</span>                          <span class="t-gray">[ 54%]</span>'},
+  {text:'<span class="t-green">tests/test_db.py::test_transaction_rollback PASSED</span>                     <span class="t-gray">[ 58%]</span>'},
+  {text:'<span class="t-green">tests/test_cache.py::test_redis_connection PASSED</span>                      <span class="t-gray">[ 62%]</span>'},
+  {text:'<span class="t-green">tests/test_cache.py::test_cache_invalidation PASSED</span>                    <span class="t-gray">[ 66%]</span>'},
+  {text:'<span class="t-green">tests/test_cache.py::test_ttl_expiration PASSED</span>                       <span class="t-gray">[ 70%]</span>'},
+  {text:'<span class="t-green">tests/test_middleware.py::test_auth_middleware PASSED</span>                  <span class="t-gray">[ 75%]</span>'},
+  {text:'<span class="t-green">tests/test_middleware.py::test_logging_middleware PASSED</span>               <span class="t-gray">[ 79%]</span>'},
+  {text:'<span class="t-green">tests/test_middleware.py::test_error_handler PASSED</span>                    <span class="t-gray">[ 83%]</span>'},
+  {text:'<span class="t-green">tests/test_tasks.py::test_async_job_queue PASSED</span>                      <span class="t-gray">[ 87%]</span>'},
+  {text:'<span class="t-green">tests/test_tasks.py::test_scheduled_cleanup PASSED</span>                    <span class="t-gray">[ 91%]</span>'},
+  {text:'<span class="t-green">tests/test_tasks.py::test_retry_mechanism PASSED</span>                     <span class="t-gray">[ 95%]</span>'},
+  {text:'<span class="t-green">tests/test_integration.py::test_full_user_flow PASSED</span>                 <span class="t-gray">[100%]</span>'},
+  {text:''},
+  {text:'<span class="t-green">============================== 24 passed in 3.82s ===============================</span>'},
+  {text:''},
+  {text:'<span class="t-green">$</span> git log --oneline -5', cls:'t-white'},
+  {text:'<span class="t-yellow">a3f8c21</span> <span class="t-white">feat: add JWT token refresh endpoint</span>'},
+  {text:'<span class="t-yellow">b7d2e09</span> <span class="t-white">fix: resolve race condition in connection pool</span>'},
+  {text:'<span class="t-yellow">c1a5f34</span> <span class="t-white">refactor: extract validation logic to separate module</span>'},
+  {text:'<span class="t-yellow">d9e3b67</span> <span class="t-white">test: add integration tests for user flow</span>'},
+  {text:'<span class="t-yellow">f2c8a41</span> <span class="t-white">chore: update dependencies to latest versions</span>'},
+  {text:''},
+  {text:'<span class="t-green">$</span> npm run build', cls:'t-white'},
+  {text:'<span class="t-gray">> workspace-pro@2.0.1 build</span>'},
+  {text:'<span class="t-gray">> vite build --mode production</span>'},
+  {text:''},
+  {text:'<span class="t-white">vite v5.0.12 building for production...</span>'},
+  {text:'<span class="t-white">transforming...</span>'},
+  {text:'<span class="t-white">rendering chunks...</span>'},
+  {text:'<span class="t-white">dist/index.html</span>                   <span class="t-gray">0.46 kB │ gzip:  0.30 kB</span>'},
+  {text:'<span class="t-white">dist/assets/index-DiwrgTda.css</span>   <span class="t-gray">42.18 kB │ gzip:  8.73 kB</span>'},
+  {text:'<span class="t-white">dist/assets/index-CdFgHuew.js</span>  <span class="t-gray">184.52 kB │ gzip: 59.41 kB</span>'},
+  {text:'<span class="t-green">built in 2.34s</span>'},
+];
+
+function renderDeveloper(panel){
+  const tpl=diffTemplates[Math.floor(Math.random()*diffTemplates.length)];
+  let diffHTML='';
+  tpl.lines.forEach(l=>{
+    const cls=l.t==='add'?'add':l.t==='del'?'del':'';
+    const prefix=l.t==='add'?'+':l.t==='del'?'-':' ';
+    diffHTML+=`<div class="diff-line ${cls}"><span class="diff-line-num">${l.n}</span><span class="diff-line-content">${prefix}${l.c}</span></div>`;
+  });
+
+  panel.innerHTML=`
+    <div class="dev-container">
+      <div class="diff-viewer">
+        <div class="diff-header">
+          <span class="diff-filename">${tpl.filename}</span>
+          <span class="diff-stats"><span class="add">+${tpl.stats.split(' ')[0].slice(1)}</span> <span class="del">${tpl.stats.split(' ')[1]}</span></span>
+          <span class="diff-tag">代码审查</span>
+        </div>
+        <div class="diff-body">${diffHTML}</div>
+      </div>
+      <div class="terminal-panel">
+        <div class="terminal-header">
+          <span class="terminal-dot r"></span><span class="terminal-dot y"></span><span class="terminal-dot g"></span>
+          <span class="terminal-tab">zsh — 80×24</span>
+        </div>
+        <div class="terminal-body" id="terminal-body"></div>
+      </div>
+    </div>`;
+
+  // Terminal animation
+  const body=$('#terminal-body');
+  let lineIdx=0;
+  function addTermLine(){
+    if(lineIdx>=terminalOutputs.length)return;
+    const line=terminalOutputs[lineIdx];
+    const div=document.createElement('div');
+    div.innerHTML=line.text||'&nbsp;';
+    body.appendChild(div);
+    body.scrollTop=body.scrollHeight;
+    lineIdx++;
+    const delay=lineIdx<3?800:lineIdx<10?200:Math.floor(Math.random()*3000)+5000;
+    setTimeout(addTermLine,delay);
+  }
+  // Add cursor
+  const cursorSpan=document.createElement('span');
+  cursorSpan.className='terminal-cursor';
+  body.appendChild(cursorSpan);
+  setTimeout(addTermLine,1500);
+}
+
+/* ================================================================
+   DESIGNER MODE
+   ================================================================ */
+const designLayers=[
+  {id:'header',name:'Header 栏',icon:'▬',visible:true},
+  {id:'banner',name:'Banner 图片',icon:'▦',visible:true},
+  {id:'title',name:'标题文字',icon:'T',visible:true},
+  {id:'desc',name:'描述文字',icon:'¶',visible:true},
+  {id:'cta',name:'CTA 按钮',icon:'▢',visible:true},
+  {id:'tabbar',name:'底部 Tab 栏',icon:'▬',visible:true},
+];
+const designProps={
+  header:{W:'260px',H:'40px',Color:'#3370FF',Font:'12px'},
+  banner:{W:'244px',H:'100px',Color:'linear-gradient',Radius:'8px'},
+  title:{W:'220px',H:'20px',Color:'#1F2329',Font:'14px Bold'},
+  desc:{W:'220px',H:'36px',Color:'#646A73',Font:'10px'},
+  cta:{W:'220px',H:'28px',Color:'#3370FF',Font:'11px Medium'},
+  tabbar:{W:'260px',H:'44px',Color:'#FAFAFA',Font:'9px'},
+};
+const selectionPositions={
+  header:{top:20,left:0,w:260,h:40},
+  banner:{top:68,left:8,w:244,h:100},
+  title:{top:176,left:12,w:220,h:20},
+  desc:{top:200,left:12,w:220,h:36},
+  cta:{top:244,left:12,w:220,h:28},
+  tabbar:{top:456,left:0,w:260,h:44},
+};
+
+function renderDesigner(panel){
+  let layerHTML='';
+  designLayers.forEach((l,i)=>{
+    layerHTML+=`<div class="layer-item" data-layer="${l.id}"><span class="layer-icon">${l.icon}</span><span>${l.name}</span><span class="layer-toggle">${l.visible?'👁':'—'}</span></div>`;
+  });
+
+  panel.innerHTML=`
+    <div class="designer-container">
+      <div class="designer-toolbar">
+        <div class="tool-btn active" title="选择">↖</div>
+        <div class="tool-btn" title="移动">✥</div>
+        <div class="tool-btn" title="画笔">✎</div>
+        <div class="tool-btn" title="文字">T</div>
+        <div class="tool-sep"></div>
+        <div class="tool-btn" title="矩形">▢</div>
+        <div class="tool-btn" title="圆形">○</div>
+        <div class="tool-btn" title="直线">╱</div>
+        <div class="tool-sep"></div>
+        <div class="tool-btn" title="图片">▦</div>
+        <div class="tool-btn" title="框架">⬜</div>
+      </div>
+      <div class="designer-main">
+        <div class="designer-canvas" id="designer-canvas">
+          <div class="phone-frame" id="phone-frame">
+            <div class="phone-notch"></div>
+            <div class="phone-header">我的应用</div>
+            <div class="phone-banner"></div>
+            <div class="phone-content">
+              <h3>春季特惠活动</h3>
+              <p>精选好物低至5折起，限时抢购中。新用户专享满减优惠，更有积分好礼等你来拿。</p>
+              <div class="phone-cta">立即参与</div>
+            </div>
+            <div class="phone-tabbar">
+              <div class="phone-tab active"><span class="phone-tab-icon">⌂</span>首页</div>
+              <div class="phone-tab"><span class="phone-tab-icon">☰</span>分类</div>
+              <div class="phone-tab"><span class="phone-tab-icon">♡</span>收藏</div>
+              <div class="phone-tab"><span class="phone-tab-icon">☺</span>我的</div>
+            </div>
+            <div class="selection-box" id="sel-box" style="display:none"><span class="sel-label" id="sel-label"></span></div>
+          </div>
+        </div>
+        <div class="designer-right">
+          <div class="panel-section">
+            <div class="panel-section-title">图层</div>
+            <div class="layer-tree" id="layer-tree">${layerHTML}</div>
+          </div>
+          <div class="panel-section">
+            <div class="panel-section-title">属性</div>
+            <div class="props-grid" id="props-grid"></div>
+          </div>
+        </div>
+      </div>
+      <div class="designer-info">
+        <span>缩放: 100%</span>
+        <span>画布: 375 × 812 (iPhone 14)</span>
+      </div>
+    </div>`;
+
+  // Cycle selection
+  const layerIds=designLayers.map(l=>l.id);
+  let selIdx=0;
+  const selBox=$('#sel-box');
+  const selLabel=$('#sel-label');
+  const layerItems=$$('#layer-tree .layer-item');
+  const propsGrid=$('#props-grid');
+
+  function showSelection(idx){
+    const id=layerIds[idx];
+    const pos=selectionPositions[id];
+    const layer=designLayers.find(l=>l.id===id);
+    selBox.style.display='block';
+    selBox.style.top=pos.top+'px';
+    selBox.style.left=pos.left+'px';
+    selBox.style.width=pos.w+'px';
+    selBox.style.height=pos.h+'px';
+    selLabel.textContent=layer.name;
+    // Update layer tree
+    layerItems.forEach((li,i)=>li.classList.toggle('active',i===idx));
+    // Update props
+    const props=designProps[id];
+    let pHTML='';
+    for(const[k,v]of Object.entries(props)){
+      pHTML+=`<div class="prop-item"><div class="prop-label">${k}</div><div class="prop-value">${v}</div></div>`;
+    }
+    propsGrid.innerHTML=pHTML;
+  }
+  showSelection(0);
+  setInterval(()=>{
+    selIdx=(selIdx+1)%layerIds.length;
+    showSelection(selIdx);
+  },3000);
+
+  // Layer click
+  layerItems.forEach((li,i)=>{
+    li.addEventListener('click',()=>{selIdx=i;showSelection(i)});
+  });
+}
+
+/* ================================================================
+   PM MODE
+   ================================================================ */
+function renderPM(panel){
+  panel.innerHTML=`
+    <div class="pm-container">
+      <div class="pm-doc">
+        <h1 class="pm-doc-title">PRD-2026-0417 用户反馈系统优化</h1>
+        <div class="pm-meta">
+          <span class="pm-tag review">评审中</span>
+          <span class="pm-meta-text">负责人：张三</span>
+          <span class="pm-meta-text">· 更新于 2026-04-17 14:20</span>
+          <span class="pm-meta-text">· 阅读 23 次</span>
+        </div>
+
+        <div class="pm-section">
+          <h2>1. 背景与目标</h2>
+          <p>当前用户反馈系统存在响应不及时、分类不清晰、处理流程不透明等问题。根据 Q1 用户满意度调研数据，反馈处理满意度仅为 62%，低于行业平均水平（78%）。用户普遍反映提交反馈后无法及时获取处理进度，且缺乏有效的反馈闭环机制。</p>
+          <p>本次优化的核心目标是提升反馈处理效率 40%，将用户满意度提升至 80% 以上。同时建立标准化的反馈分类体系和自动化分配机制，减少人工干预成本。</p>
+          <p>项目周期为 2026 年 4 月至 6 月，分三个阶段推进。第一阶段聚焦核心流程优化，第二阶段引入智能分类，第三阶段完善数据看板和报表功能。</p>
+        </div>
+
+        <div class="pm-section">
+          <h2>2. 需求清单</h2>
+          <ul class="pm-checklist">
+            <li class="pm-check-item"><span class="pm-check done"></span><span class="pm-check-text done">重构反馈提交表单，支持多类型反馈（Bug、建议、投诉、咨询）</span></li>
+            <li class="pm-check-item"><span class="pm-check done"></span><span class="pm-check-text done">新增反馈状态流转机制（待处理→处理中→已解决→已关闭）</span></li>
+            <li class="pm-check-item"><span class="pm-check done"></span><span class="pm-check-text done">实现反馈自动分配规则（按类型、优先级、负责部门）</span></li>
+            <li class="pm-check-item"><span class="pm-check done"></span><span class="pm-check-text done">新增用户反馈进度通知（站内信 + 邮件）</span></li>
+            <li class="pm-check-item"><span class="pm-check"></span><span class="pm-check-text">接入 NLP 模型实现反馈智能分类（准确率 > 85%）</span></li>
+            <li class="pm-check-item"><span class="pm-check"></span><span class="pm-check-text">新增管理员数据看板（处理时效、满意度趋势、分类分布）</span></li>
+            <li class="pm-check-item"><span class="pm-check"></span><span class="pm-check-text">支持反馈附件上传（图片、日志文件，最大 20MB）</span></li>
+            <li class="pm-check-item"><span class="pm-check"></span><span class="pm-check-text">新增批量处理和导出功能</span></li>
+          </ul>
+        </div>
+
+        <div class="pm-section">
+          <h2>3. 数据指标</h2>
+          <div class="pm-chart">
+            <svg viewBox="0 0 680 160" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#3370FF" stop-opacity="0.3"/>
+                  <stop offset="100%" stop-color="#3370FF" stop-opacity="0.02"/>
+                </linearGradient>
+              </defs>
+              <!-- Grid lines -->
+              <line x1="40" y1="10" x2="40" y2="130" stroke="#E8E8E8" stroke-width="1"/>
+              <line x1="40" y1="130" x2="660" y2="130" stroke="#E8E8E8" stroke-width="1"/>
+              <line x1="40" y1="85" x2="660" y2="85" stroke="#F0F0F0" stroke-width="0.5" stroke-dasharray="4"/>
+              <line x1="40" y1="40" x2="660" y2="40" stroke="#F0F0F0" stroke-width="0.5" stroke-dasharray="4"/>
+              <!-- Y axis labels -->
+              <text x="35" y="134" text-anchor="end" font-size="10" fill="#8F959E">0</text>
+              <text x="35" y="89" text-anchor="end" font-size="10" fill="#8F959E">50</text>
+              <text x="35" y="44" text-anchor="end" font-size="10" fill="#8F959E">100</text>
+              <!-- Area fill -->
+              <polygon points="60,115 150,100 240,108 330,85 420,70 510,55 600,40 600,130 60,130" fill="url(#chartGrad)"/>
+              <!-- Line -->
+              <polyline points="60,115 150,100 240,108 330,85 420,70 510,55 600,40" fill="none" stroke="#3370FF" stroke-width="2" stroke-linejoin="round"/>
+              <!-- Data points -->
+              <circle cx="60" cy="115" r="3" fill="#fff" stroke="#3370FF" stroke-width="2"/>
+              <circle cx="150" cy="100" r="3" fill="#fff" stroke="#3370FF" stroke-width="2"/>
+              <circle cx="240" cy="108" r="3" fill="#fff" stroke="#3370FF" stroke-width="2"/>
+              <circle cx="330" cy="85" r="3" fill="#fff" stroke="#3370FF" stroke-width="2"/>
+              <circle cx="420" cy="70" r="3" fill="#fff" stroke="#3370FF" stroke-width="2"/>
+              <circle cx="510" cy="55" r="3" fill="#fff" stroke="#3370FF" stroke-width="2"/>
+              <circle cx="600" cy="40" r="3" fill="#fff" stroke="#3370FF" stroke-width="2"/>
+              <!-- X axis labels -->
+              <text x="60" y="148" text-anchor="middle" font-size="10" fill="#8F959E">1月</text>
+              <text x="150" y="148" text-anchor="middle" font-size="10" fill="#8F959E">2月</text>
+              <text x="240" y="148" text-anchor="middle" font-size="10" fill="#8F959E">3月</text>
+              <text x="330" y="148" text-anchor="middle" font-size="10" fill="#8F959E">4月</text>
+              <text x="420" y="148" text-anchor="middle" font-size="10" fill="#8F959E">5月</text>
+              <text x="510" y="148" text-anchor="middle" font-size="10" fill="#8F959E">6月</text>
+              <text x="600" y="148" text-anchor="middle" font-size="10" fill="#8F959E">7月</text>
+              <!-- Legend -->
+              <text x="500" y="18" font-size="10" fill="#646A73">用户满意度 (%)</text>
+            </svg>
+          </div>
+        </div>
+
+        <div class="pm-section">
+          <h2>4. 里程碑</h2>
+          <div class="pm-timeline">
+            <div class="pm-tl-item done">
+              <div class="pm-tl-date">2026-04-01 ~ 04-15</div>
+              <div class="pm-tl-title">第一阶段：核心流程优化</div>
+              <div class="pm-tl-desc">完成反馈表单重构、状态流转、自动分配功能开发与测试</div>
+            </div>
+            <div class="pm-tl-item">
+              <div class="pm-tl-date">2026-04-16 ~ 05-15</div>
+              <div class="pm-tl-title">第二阶段：智能分类接入</div>
+              <div class="pm-tl-desc">NLP 模型训练与部署，实现反馈自动分类与优先级判定</div>
+            </div>
+            <div class="pm-tl-item">
+              <div class="pm-tl-date">2026-05-16 ~ 06-15</div>
+              <div class="pm-tl-title">第三阶段：数据看板与报表</div>
+              <div class="pm-tl-desc">管理员数据看板、批量处理、导出功能开发，全量上线</div>
+            </div>
+            <div class="pm-tl-item">
+              <div class="pm-tl-date">2026-06-16 ~ 06-30</div>
+              <div class="pm-tl-title">项目收尾与复盘</div>
+              <div class="pm-tl-desc">性能优化、文档完善、数据复盘与二期规划</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pm-footer">
+          <span class="pm-footer-item">💬 评审意见 <span class="pm-footer-badge">3</span></span>
+          <span class="pm-footer-item">📎 附件 <span class="pm-footer-badge">2</span></span>
+          <span class="pm-footer-item">🕐 历史版本</span>
+          <span class="pm-footer-item">↗ 分享</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+/* ================================================================
+   OPERATOR MODE
+   ================================================================ */
+const opInitialData={
+  pv:128456, pvChange:12.3,
+  cvr:3.82, cvrChange:0.5,
+  users:2341, usersChange:8.7,
+};
+const barData=[
+  {day:'周一',val:18234},{day:'周二',val:21567},{day:'周三',val:19876},
+  {day:'周四',val:24321},{day:'周五',val:22109},{day:'周六',val:16782},{day:'周日',val:14567},
+];
+const contentItems=[
+  {type:'article',icon:'📄',title:'春季营销活动复盘报告',meta:'王五 · 10分钟前',status:'reviewing',statusText:'审核中'},
+  {type:'video',icon:'🎬',title:'产品使用教程系列 - 第三期',meta:'李四 · 30分钟前',status:'scheduled',statusText:'定时发布 15:00'},
+  {type:'activity',icon:'🎉',title:'五一劳动节抽奖活动上线',meta:'赵六 · 1小时前',status:'reviewing',statusText:'审核中'},
+  {type:'article',icon:'📄',title:'用户增长策略月度分析',meta:'张三 · 2小时前',status:'scheduled',statusText:'定时发布 18:00'},
+  {type:'video',icon:'🎬',title:'品牌宣传片最终版',meta:'陈七 · 3小时前',status:'reviewing',statusText:'审核中'},
+];
+const extraContent=[
+  {type:'article',icon:'📄',title:'竞品分析报告 - Q2 季度',meta:'系统 · 刚刚',status:'reviewing',statusText:'待审核'},
+  {type:'activity',icon:'🎉',title:'会员日专属优惠方案',meta:'系统 · 刚刚',status:'scheduled',statusText:'定时发布 20:00'},
+  {type:'article',icon:'📄',title:'社交媒体运营周报',meta:'系统 · 刚刚',status:'reviewing',statusText:'待审核'},
+  {type:'video',icon:'🎬',title:'用户故事系列 - 第五期',meta:'系统 · 刚刚',status:'scheduled',statusText:'定时发布 明天 09:00'},
+  {type:'activity',icon:'🎉',title:'618 预热活动策划方案',meta:'系统 · 刚刚',status:'reviewing',statusText:'待审核'},
+];
+let extraIdx=0;
+
+function renderOperator(panel){
+  const maxBar=Math.max(...barData.map(b=>b.val));
+
+  let barsHTML='';
+  barData.forEach(b=>{
+    const h=Math.round((b.val/maxBar)*110);
+    barsHTML+=`<div class="op-bar-col"><div class="op-bar-val">${(b.val/1000).toFixed(1)}k</div><div class="op-bar" style="height:${h}px" data-orig="${h}"></div><span class="op-bar-label">${b.day}</span></div>`;
+  });
+
+  let itemsHTML='';
+  contentItems.forEach(c=>{
+    itemsHTML+=`<div class="op-content-item"><div class="op-content-icon ${c.type}">${c.icon}</div><div class="op-content-info"><div class="op-content-title">${c.title}</div><div class="op-content-meta">${c.meta}</div></div><span class="op-content-status ${c.status}">${c.statusText}</span></div>`;
+  });
+
+  panel.innerHTML=`
+    <div class="op-container">
+      <div class="op-cards">
+        <div class="op-card">
+          <div class="op-card-label">页面浏览量 (PV)</div>
+          <div class="op-card-value" id="op-pv">${opInitialData.pv.toLocaleString()}</div>
+          <div class="op-card-change up" id="op-pv-change">↑ ${opInitialData.pvChange}%</div>
+        </div>
+        <div class="op-card">
+          <div class="op-card-label">转化率</div>
+          <div class="op-card-value" id="op-cvr">${opInitialData.cvr}%</div>
+          <div class="op-card-change up" id="op-cvr-change">↑ ${opInitialData.cvrChange}%</div>
+        </div>
+        <div class="op-card">
+          <div class="op-card-label">新增用户</div>
+          <div class="op-card-value" id="op-users">${opInitialData.users.toLocaleString()}</div>
+          <div class="op-card-change up" id="op-users-change">↑ ${opInitialData.usersChange}%</div>
+        </div>
+      </div>
+      <div class="op-chart">
+        <div class="op-chart-title">近 7 天 PV 趋势</div>
+        <div class="op-bar-chart" id="op-bar-chart">${barsHTML}</div>
+      </div>
+      <div class="op-content-list">
+        <div class="op-content-header">
+          <span>待发布内容</span>
+          <span class="op-content-count" id="op-content-count">${contentItems.length} 条</span>
+        </div>
+        <div class="op-content-items" id="op-content-items">${itemsHTML}</div>
+      </div>
+    </div>`;
+
+  // Data fluctuation every 15s
+  setInterval(()=>{
+    const pvEl=$('#op-pv');
+    const cvrEl=$('#op-cvr');
+    const usersEl=$('#op-users');
+    if(!pvEl)return;
+    const pvDelta=Math.floor(Math.random()*200)-80;
+    const pv=parseInt(pvEl.textContent.replace(/,/g,''))+pvDelta;
+    pvEl.textContent=pv.toLocaleString();
+    const pvChangeEl=$('#op-pv-change');
+    const pvPct=(pvDelta/opInitialData.pv*100);
+    pvChangeEl.textContent=(pvDelta>=0?'↑ ':'↓ ')+Math.abs(pvPct).toFixed(1)+'%';
+    pvChangeEl.className='op-card-change '+(pvDelta>=0?'up':'down');
+
+    const cvrDelta=(Math.random()*0.1-0.04);
+    const cvr=parseFloat(cvrEl.textContent)+cvrDelta;
+    cvrEl.textContent=cvr.toFixed(2)+'%';
+    const cvrChangeEl=$('#op-cvr-change');
+    cvrChangeEl.textContent=(cvrDelta>=0?'↑ ':'↓ ')+Math.abs(cvrDelta).toFixed(2)+'%';
+    cvrChangeEl.className='op-card-change '+(cvrDelta>=0?'up':'down');
+
+    const usersDelta=Math.floor(Math.random()*30)-10;
+    const users=parseInt(usersEl.textContent.replace(/,/g,''))+usersDelta;
+    usersEl.textContent=users.toLocaleString();
+    const usersChangeEl=$('#op-users-change');
+    const usersPct=(usersDelta/opInitialData.users*100);
+    usersChangeEl.textContent=(usersDelta>=0?'↑ ':'↓ ')+Math.abs(usersPct).toFixed(1)+'%';
+    usersChangeEl.className='op-card-change '+(usersDelta>=0?'up':'down');
+  },15000);
+
+  // Bar chart fluctuation every 20s
+  setInterval(()=>{
+    const bars=$$('#op-bar-chart .op-bar');
+    const vals=$$('#op-bar-chart .op-bar-val');
+    if(!bars.length)return;
+    bars.forEach((bar,i)=>{
+      const orig=parseInt(bar.dataset.orig);
+      const delta=Math.floor(Math.random()*10)-4;
+      const newH=Math.max(10,orig+delta);
+      bar.style.height=newH+'px';
+      const newBarVal=barData[i].val+delta*200;
+      vals[i].textContent=(newBarVal/1000).toFixed(1)+'k';
+    });
+  },20000);
+
+  // Auto add content every 20s
+  setInterval(()=>{
+    const list=$('#op-content-items');
+    const countEl=$('#op-content-count');
+    if(!list||extraIdx>=extraContent.length)return;
+    const c=extraContent[extraIdx++];
+    const div=document.createElement('div');
+    div.className='op-content-item';
+    div.style.animation='contentFadeIn .4s ease';
+    div.innerHTML=`<div class="op-content-icon ${c.type}">${c.icon}</div><div class="op-content-info"><div class="op-content-title">${c.title}</div><div class="op-content-meta">${c.meta}</div></div><span class="op-content-status ${c.status}">${c.statusText}</span>`;
+    list.prepend(div);
+    const total=contentItems.length+extraIdx;
+    countEl.textContent=total+' 条';
+  },20000);
+}
+
+/* ================================================================
+   TODO PANEL
+   ================================================================ */
+const defaultTodos=[
+  {id:1,text:'Review PR #234 - JWT token refresh logic',done:true},
+  {id:2,text:'Update API documentation for v2.1',done:true},
+  {id:3,text:'Fix responsive layout issue on dashboard',done:true},
+  {id:4,text:'Write unit tests for payment module',done:false},
+  {id:5,text:'Prepare sprint retrospective slides',done:false},
+  {id:6,text:'Investigate memory leak in WebSocket handler',done:false},
+  {id:7,text:'Deploy staging environment for QA',done:false},
+];
+
+function loadTodos(){
+  const raw=localStorage.getItem('wsp_todos');
+  if(raw){try{return JSON.parse(raw)}catch(e){}}
+  return defaultTodos.map(t=>({...t}));
+}
+function saveTodos(todos){localStorage.setItem('wsp_todos',JSON.stringify(todos))}
+
+function initTodo(){
+  renderTodos();
+  $('#todo-add-btn').addEventListener('click',addTodo);
+  $('#todo-input').addEventListener('keydown',e=>{if(e.key==='Enter')addTodo()});
+}
+
+function renderTodos(){
+  const todos=loadTodos();
+  const list=$('#todo-list');
+  const done=todos.filter(t=>t.done).length;
+  const total=todos.length;
+  $('#todo-count').textContent=`${done}/${total}`;
+  $('#todo-progress-bar').style.width=total?((done/total)*100)+'%':'0%';
+
+  list.innerHTML='';
+  todos.forEach((t,i)=>{
+    const div=document.createElement('div');
+    div.className='todo-item';
+    div.draggable=true;
+    div.dataset.index=i;
+    div.innerHTML=`
+      <div class="todo-checkbox ${t.done?'checked':''}" data-id="${t.id}"></div>
+      <span class="todo-text ${t.done?'done':''}">${esc(t.text)}</span>
+      <span class="todo-delete" data-id="${t.id}">×</span>`;
+    list.appendChild(div);
+  });
+
+  // Events
+  list.querySelectorAll('.todo-checkbox').forEach(cb=>{
+    cb.addEventListener('click',()=>{
+      const id=parseInt(cb.dataset.id);
+      const todos=loadTodos();
+      const t=todos.find(x=>x.id===id);
+      if(t){t.done=!t.done;saveTodos(todos);renderTodos()}
+    });
+  });
+  list.querySelectorAll('.todo-delete').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const id=parseInt(btn.dataset.id);
+      let todos=loadTodos();
+      todos=todos.filter(x=>x.id!==id);
+      saveTodos(todos);renderTodos();
+    });
+  });
+
+  // Drag and drop
+  let dragIdx=null;
+  list.querySelectorAll('.todo-item').forEach(item=>{
+    item.addEventListener('dragstart',e=>{
+      dragIdx=parseInt(item.dataset.index);
+      item.classList.add('dragging');
+      e.dataTransfer.effectAllowed='move';
+    });
+    item.addEventListener('dragend',()=>{
+      item.classList.remove('dragging');
+      list.querySelectorAll('.todo-item').forEach(i=>i.classList.remove('drag-over'));
+    });
+    item.addEventListener('dragover',e=>{
+      e.preventDefault();
+      e.dataTransfer.dropEffect='move';
+      item.classList.add('drag-over');
+    });
+    item.addEventListener('dragleave',()=>item.classList.remove('drag-over'));
+    item.addEventListener('drop',e=>{
+      e.preventDefault();
+      item.classList.remove('drag-over');
+      const dropIdx=parseInt(item.dataset.index);
+      if(dragIdx===null||dragIdx===dropIdx)return;
+      const todos=loadTodos();
+      const [moved]=todos.splice(dragIdx,1);
+      todos.splice(dropIdx,0,moved);
+      saveTodos(todos);renderTodos();
+    });
+  });
+}
+
+function addTodo(){
+  const input=$('#todo-input');
+  const text=input.value.trim();
+  if(!text)return;
+  const todos=loadTodos();
+  const maxId=todos.reduce((m,t)=>Math.max(m,t.id),0);
+  todos.push({id:maxId+1,text,done:false});
+  saveTodos(todos);
+  input.value='';
+  renderTodos();
+}
+
+/* ================================================================
+   EXIT POLLING
+   ================================================================ */
+function startExitPolling(){
+  // Try to detect exit signal from URL params
+  const params=new URLSearchParams(location.search);
+  const port=params.get('port')||'8765';
+  setInterval(()=>{
+    fetch(`http://localhost:${port}/exit_status`,{mode:'no-cors',cache:'no-store'})
+    .then(()=>{
+      // If we get here (even no-cors returns opaque), we just ignore
+      // We only trigger exit on a successful readable response
+    })
+    .catch(()=>{
+      // Server not running, ignore
+    });
+    // Alternative: use a more reliable approach
+    try{
+      const xhr=new XMLHttpRequest();
+      xhr.open('GET',`http://localhost:${port}/exit_status`,true);
+      xhr.timeout=400;
+      xhr.onload=function(){
+        if(xhr.status===200&&xhr.responseText.trim()==='exit'){
+          triggerExit();
+        }
+      };
+      xhr.onerror=function(){};
+      xhr.ontimeout=function(){};
+      xhr.send();
+    }catch(e){}
+  },500);
+}
+
+function triggerExit(){
+  const overlay=$('#exit-overlay');
+  overlay.classList.add('active');
+  setTimeout(()=>{
+    document.title='Desktop';
+    document.body.style.background='#000';
+  },500);
+}
+
+/* ========== Start ========== */
+document.addEventListener('DOMContentLoaded',init);
+
+// Remove entry overlay after animation
+setTimeout(()=>{
+  const eo=$('#entry-overlay');
+  if(eo)eo.remove();
+},900);
+</script>
+</body>
+</html>

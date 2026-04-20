@@ -1,0 +1,7 @@
+{
+  "hotkey": "ctrl+`",
+  "role": "developer",
+  "port": 0,
+  "transition_duration_ms": 800,
+  "muted_browsers": ["chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "vivaldi.exe"]
+}
