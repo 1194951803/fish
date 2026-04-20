@@ -41,6 +41,7 @@ logger = logging.getLogger("FishGuardian")
 # ---------------------------------------------------------------------------
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.json")
+TODOS_PATH = os.path.join(SCRIPT_DIR, "todos.json")
 DEFAULT_CONFIG: Dict[str, Any] = {
     "hotkey": "ctrl+`",
     "role": "developer",
@@ -137,6 +138,30 @@ def save_config(cfg: Dict[str, Any]) -> None:
         logger.info("配置已保存到: %s", CONFIG_PATH)
     except IOError as e:
         logger.error("保存配置文件失败: %s", e)
+
+
+# ===========================================================================
+# 待办存储
+# ===========================================================================
+
+def load_todos() -> List[Dict[str, Any]]:
+    """从 todos.json 加载待办数据。"""
+    if os.path.exists(TODOS_PATH):
+        try:
+            with open(TODOS_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            logger.error("待办文件读取失败: %s，将使用空列表", e)
+    return []
+
+
+def save_todos(todos: List[Dict[str, Any]]) -> None:
+    """将待办列表写入 todos.json 文件。"""
+    try:
+        with open(TODOS_PATH, "w", encoding="utf-8") as f:
+            json.dump(todos, f, indent=2, ensure_ascii=False)
+    except IOError as e:
+        logger.error("保存待办文件失败: %s", e)
 
 
 # ===========================================================================
@@ -650,14 +675,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
     提供以下路由：
       - GET /              -> 返回 work_dashboard.html
-      - GET /exit          -> 触发看板退出动画
+      - GET /exit          -> 触发看板退出（仅后端内部调用）
+      - GET /exit_status   -> 前端轮询检查退出状态
       - GET /config        -> 返回当前配置 JSON
+      - GET /api/todos     -> 返回待办列表
+      - POST /api/todos    -> 保存待办列表
       - 其他               -> 静态文件服务
     """
 
     # 类变量，由外部设置
     config: Dict[str, Any] = {}
     exit_event: Optional[threading.Event] = None
+    _exit_signaled: bool = False  # 防止重复触发
 
     def log_message(self, format: str, *args: Any) -> None:
         """重写日志方法，使用统一的日志格式。"""
@@ -671,11 +700,25 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self._serve_dashboard()
         elif parsed.path == "/exit":
             self._handle_exit()
+        elif parsed.path == "/exit_status":
+            self._handle_exit_status()
         elif parsed.path == "/config":
             self._serve_config()
+        elif parsed.path == "/api/todos":
+            self._serve_todos()
         else:
             # 尝试提供静态文件
             super().do_GET()
+
+    def do_POST(self) -> None:  # noqa: N802
+        """处理 POST 请求。"""
+        parsed = urlparse(self.path)
+
+        if parsed.path == "/api/todos":
+            self._save_todos()
+        else:
+            self.send_response(404)
+            self.end_headers()
 
     def _serve_dashboard(self) -> None:
         """提供 work_dashboard.html 页面。"""
@@ -695,7 +738,11 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             logger.warning("work_dashboard.html 文件不存在: %s", dashboard_path)
 
     def _handle_exit(self) -> None:
-        """处理 /exit 请求，触发退出事件。"""
+        """处理 /exit 请求，触发退出事件（仅后端内部调用）。"""
+        if DashboardHandler._exit_signaled:
+            return  # 已触发过，忽略重复请求
+        DashboardHandler._exit_signaled = True
+
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.end_headers()
@@ -707,6 +754,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if DashboardHandler.exit_event is not None:
             DashboardHandler.exit_event.set()
 
+    def _handle_exit_status(self) -> None:
+        """前端轮询检查退出状态。"""
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.end_headers()
+        response = {"exit": DashboardHandler._exit_signaled}
+        self.wfile.write(json.dumps(response, ensure_ascii=False).encode("utf-8"))
+
     def _serve_config(self) -> None:
         """返回当前配置的 JSON。"""
         self.send_response(200)
@@ -714,6 +769,34 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(json.dumps(DashboardHandler.config, indent=2, ensure_ascii=False).encode("utf-8"))
+
+    def _serve_todos(self) -> None:
+        """返回待办列表 JSON。"""
+        todos = load_todos()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(json.dumps(todos, ensure_ascii=False).encode("utf-8"))
+
+    def _save_todos(self) -> None:
+        """保存待办列表。"""
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            todos = json.loads(body.decode("utf-8"))
+            save_todos(todos)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok"}, ensure_ascii=False).encode("utf-8"))
+        except (json.JSONDecodeError, IOError) as e:
+            logger.error("保存待办失败: %s", e)
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "error", "message": str(e)}, ensure_ascii=False).encode("utf-8"))
 
 
 class DashboardServer:
@@ -736,6 +819,8 @@ class DashboardServer:
         self._server_thread: Optional[threading.Thread] = None
         self._exit_event = threading.Event()
 
+        # 重置退出状态，避免上次运行残留
+        DashboardHandler._exit_signaled = False
         # 设置类变量，供 Handler 使用
         DashboardHandler.config = config
         DashboardHandler.exit_event = self._exit_event

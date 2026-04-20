@@ -1290,21 +1290,40 @@ const defaultTodos=[
   {id:7,text:'Deploy staging environment for QA',done:false},
 ];
 
-function loadTodos(){
-  const raw=localStorage.getItem('wsp_todos');
-  if(raw){try{return JSON.parse(raw)}catch(e){}}
+function getBaseUrl(){
+  const p=new URLSearchParams(location.search);
+  const port=p.get('port')||location.port||'8765';
+  return `${location.protocol}//${location.hostname}:${port}`;
+}
+
+async function loadTodos(){
+  try{
+    const res=await fetch(`${getBaseUrl()}/api/todos`);
+    if(!res.ok)throw new Error('network');
+    const data=await res.json();
+    if(Array.isArray(data)&&data.length)return data;
+  }catch(e){}
   return defaultTodos.map(t=>({...t}));
 }
-function saveTodos(todos){localStorage.setItem('wsp_todos',JSON.stringify(todos))}
 
-function initTodo(){
-  renderTodos();
+async function saveTodos(todos){
+  try{
+    await fetch(`${getBaseUrl()}/api/todos`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(todos),
+    });
+  }catch(e){}
+}
+
+async function initTodo(){
+  await renderTodos();
   $('#todo-add-btn').addEventListener('click',addTodo);
   $('#todo-input').addEventListener('keydown',e=>{if(e.key==='Enter')addTodo()});
 }
 
-function renderTodos(){
-  const todos=loadTodos();
+async function renderTodos(){
+  const todos=await loadTodos();
   const list=$('#todo-list');
   const done=todos.filter(t=>t.done).length;
   const total=todos.length;
@@ -1326,19 +1345,19 @@ function renderTodos(){
 
   // Events
   list.querySelectorAll('.todo-checkbox').forEach(cb=>{
-    cb.addEventListener('click',()=>{
+    cb.addEventListener('click',async()=>{
       const id=parseInt(cb.dataset.id);
-      const todos=loadTodos();
+      const todos=await loadTodos();
       const t=todos.find(x=>x.id===id);
-      if(t){t.done=!t.done;saveTodos(todos);renderTodos()}
+      if(t){t.done=!t.done;await saveTodos(todos);renderTodos()}
     });
   });
   list.querySelectorAll('.todo-delete').forEach(btn=>{
-    btn.addEventListener('click',()=>{
+    btn.addEventListener('click',async()=>{
       const id=parseInt(btn.dataset.id);
-      let todos=loadTodos();
+      let todos=await loadTodos();
       todos=todos.filter(x=>x.id!==id);
-      saveTodos(todos);renderTodos();
+      await saveTodos(todos);renderTodos();
     });
   });
 
@@ -1360,27 +1379,27 @@ function renderTodos(){
       item.classList.add('drag-over');
     });
     item.addEventListener('dragleave',()=>item.classList.remove('drag-over'));
-    item.addEventListener('drop',e=>{
+    item.addEventListener('drop',async e=>{
       e.preventDefault();
       item.classList.remove('drag-over');
       const dropIdx=parseInt(item.dataset.index);
       if(dragIdx===null||dragIdx===dropIdx)return;
-      const todos=loadTodos();
+      const todos=await loadTodos();
       const [moved]=todos.splice(dragIdx,1);
       todos.splice(dropIdx,0,moved);
-      saveTodos(todos);renderTodos();
+      await saveTodos(todos);renderTodos();
     });
   });
 }
 
-function addTodo(){
+async function addTodo(){
   const input=$('#todo-input');
   const text=input.value.trim();
   if(!text)return;
-  const todos=loadTodos();
+  const todos=await loadTodos();
   const maxId=todos.reduce((m,t)=>Math.max(m,t.id),0);
   todos.push({id:maxId+1,text,done:false});
-  saveTodos(todos);
+  await saveTodos(todos);
   input.value='';
   renderTodos();
 }
@@ -1389,26 +1408,21 @@ function addTodo(){
    EXIT POLLING
    ================================================================ */
 function startExitPolling(){
-  // Try to detect exit signal from URL params
   const params=new URLSearchParams(location.search);
-  const port=params.get('port')||'8765';
+  const port=params.get('port')||location.port||'8765';
+  let exited=false;
   setInterval(()=>{
-    fetch(`http://localhost:${port}/exit_status`,{mode:'no-cors',cache:'no-store'})
-    .then(()=>{
-      // If we get here (even no-cors returns opaque), we just ignore
-      // We only trigger exit on a successful readable response
-    })
-    .catch(()=>{
-      // Server not running, ignore
-    });
-    // Alternative: use a more reliable approach
+    if(exited)return;
     try{
       const xhr=new XMLHttpRequest();
-      xhr.open('GET',`http://localhost:${port}/exit_status`,true);
+      xhr.open('GET',`${location.protocol}//${location.hostname}:${port}/exit_status`,true);
       xhr.timeout=400;
       xhr.onload=function(){
-        if(xhr.status===200&&xhr.responseText.trim()==='exit'){
-          triggerExit();
+        if(xhr.status===200){
+          try{
+            const data=JSON.parse(xhr.responseText);
+            if(data.exit){exited=true;triggerExit()}
+          }catch(e){}
         }
       };
       xhr.onerror=function(){};
