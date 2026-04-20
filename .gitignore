@@ -1,0 +1,32 @@
+# JetBrains IDEs
+.idea/
+*.iml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.egg-info
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local config (optional, add if needed)
+# config.local.json
