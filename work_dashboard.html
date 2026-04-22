@@ -168,6 +168,10 @@ body{display:flex;flex-direction:column}
 .todo-delete{width:20px;height:20px;display:flex;align-items:center;justify-content:center;border-radius:4px;cursor:pointer;color:var(--text-tertiary);font-size:14px;opacity:0;transition:all .15s;flex-shrink:0}
 .todo-item:hover .todo-delete{opacity:1}
 .todo-delete:hover{background:var(--red-bg);color:var(--red)}
+.todo-copy{width:20px;height:20px;display:flex;align-items:center;justify-content:center;border-radius:4px;cursor:pointer;color:var(--text-tertiary);font-size:12px;opacity:0;transition:all .15s;flex-shrink:0}
+.todo-item:hover .todo-copy{opacity:1}
+.todo-copy:hover{background:var(--green-bg);color:var(--green)}
+.todo-copy.copied{color:var(--green);opacity:1}
 .todo-input-area{padding:12px 16px;border-top:1px solid var(--border-light);display:flex;gap:8px}
 .todo-input{flex:1;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:13px;outline:none;font-family:var(--font-stack);transition:border-color .2s}
 .todo-input:focus{border-color:var(--accent)}
@@ -1453,6 +1457,7 @@ async function renderTodos(){
     div.innerHTML=`
       <div class="todo-checkbox ${t.done?'checked':''}" data-id="${t.id}"></div>
       <span class="todo-text ${t.done?'done':''}">${esc(t.text)}</span>
+      <span class="todo-copy" data-id="${t.id}" title="复制内容">📋</span>
       <span class="todo-delete" data-id="${t.id}">×</span>`;
     list.appendChild(div);
   });
@@ -1472,6 +1477,22 @@ async function renderTodos(){
       let todos=await loadTodos();
       todos=todos.filter(x=>x.id!==id);
       await saveTodos(todos);renderTodos();
+    });
+  });
+
+  // Copy
+  list.querySelectorAll('.todo-copy').forEach(btn=>{
+    btn.addEventListener('click',async()=>{
+      const id=parseInt(btn.dataset.id);
+      const todos=await loadTodos();
+      const t=todos.find(x=>x.id===id);
+      if(!t)return;
+      try{
+        await navigator.clipboard.writeText(t.text);
+        btn.textContent='✓';
+        btn.classList.add('copied');
+        setTimeout(()=>{btn.textContent='📋';btn.classList.remove('copied')},1500);
+      }catch(e){}
     });
   });
 
